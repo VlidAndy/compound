@@ -1,9 +1,9 @@
 export interface YearlyData {
   year: number;
-  totalPrincipal: number; // Initial + Monthly Contributions
-  totalInterest: number;  // Earned Interest
-  balance: number;        // Total Value
-  yearlyInterest: number; // Interest earned just this year
+  totalPrincipal: number; 
+  totalInterest: number;  
+  balance: number;        
+  yearlyInterest: number; 
 }
 
 export interface CalculationResult {
@@ -11,8 +11,8 @@ export interface CalculationResult {
   finalBalance: number;
   totalPrincipal: number;
   totalInterest: number;
-  effectiveAnnualRate: number; // EAR
-  crossoverYear: number | null; // The year interest exceeds principal
+  effectiveAnnualRate: number; 
+  crossoverYear: number | null; 
 }
 
 export interface InputState {
@@ -21,3 +21,12 @@ export interface InputState {
   annualRate: number;
   years: number;
 }
+
+export interface AssetItem {
+  id: string;
+  name: string;
+  amount: number;
+  color: string;
+}
+
+export type AppTool = 'calculator' | 'allocation';
