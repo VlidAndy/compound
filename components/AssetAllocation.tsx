@@ -42,7 +42,6 @@ export const AssetAllocation: React.FC = () => {
     const existingIndex = items.findIndex(i => i.name.trim().toLowerCase() === newItem.name.trim().toLowerCase());
 
     if (existingIndex !== -1) {
-      // 更新逻辑
       const updatedItems = [...items];
       updatedItems[existingIndex] = {
         ...updatedItems[existingIndex],
@@ -50,7 +49,6 @@ export const AssetAllocation: React.FC = () => {
       };
       setItems(updatedItems);
     } else {
-      // 新增逻辑
       const item: AssetItem = {
         id: Date.now().toString(),
         name: newItem.name.trim(),
@@ -202,10 +200,11 @@ export const AssetAllocation: React.FC = () => {
                   <Tooltip content={<CustomPieTooltip />} />
                 </PieChart>
               </ResponsiveContainer>
-              {/* 中央视觉标识：更简约，不干扰浮窗 */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none">
-                <div className="bg-slate-900/80 backdrop-blur-md rounded-full p-4 border border-slate-700/50 shadow-inner">
-                  <PieIcon size={20} className="text-brand-400 opacity-60" />
+              
+              {/* 中央视觉标识：彻底减弱，只保留最虚化的轮廓，完全不遮挡视野 */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none z-0">
+                <div className="w-20 h-20 rounded-full border border-slate-700/30 flex items-center justify-center">
+                   <PieIcon size={16} className="text-brand-500/10" />
                 </div>
               </div>
             </div>
@@ -227,10 +226,13 @@ const CustomPieTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="bg-slate-900/95 border border-slate-700 p-3 rounded-xl shadow-2xl backdrop-blur-xl z-50 ring-1 ring-white/10">
-        <p className="text-sm font-bold text-white mb-1 border-b border-slate-700 pb-1">{data.name}</p>
-        <p className="text-xs text-brand-400 font-mono font-bold mt-1">{formatCurrency(data.value, 2)}</p>
-        <p className="text-[10px] text-slate-500 mt-0.5 tracking-wider uppercase">占比: {data.percentage}%</p>
+      <div className="bg-slate-900/98 border border-slate-700/80 p-3 rounded-xl shadow-2xl backdrop-blur-2xl z-[100] ring-1 ring-white/10 min-w-[140px]">
+        <p className="text-sm font-bold text-white mb-1 border-b border-slate-700/50 pb-1">{data.name}</p>
+        <p className="text-xs text-brand-400 font-mono font-bold mt-1.5">{formatCurrency(data.value, 2)}</p>
+        <div className="flex items-center justify-between mt-1">
+          <span className="text-[9px] text-slate-500 uppercase tracking-widest">份额占比</span>
+          <span className="text-[10px] text-slate-400 font-mono font-semibold">{data.percentage}%</span>
+        </div>
       </div>
     );
   }
