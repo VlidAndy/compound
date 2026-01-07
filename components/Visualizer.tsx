@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine 
 } from 'recharts';
-import { CalculationResult, YearlyData } from '../types';
+import { CalculationResult } from '../types';
 import { formatCurrency, formatPercentage } from '../utils/calculator';
-import { TrendingUp, Award, DollarSign, Layers, Table as TableIcon } from 'lucide-react';
+import { TrendingUp, Award, Table as TableIcon } from 'lucide-react';
 import { DataTable } from './DataTable';
 
 interface VisualizerProps {
