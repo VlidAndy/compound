@@ -13,7 +13,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ values, onChange, onRe
   return (
     <div className="h-full flex flex-col space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+        <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2">
           <span className="w-1 h-6 bg-brand-500 rounded-full shadow-[0_0_10px_rgba(14,165,233,0.5)]"></span>
           模型参数
         </h2>
@@ -26,7 +26,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ values, onChange, onRe
         </button>
       </div>
 
-      <div className="flex-1 space-y-6 overflow-y-auto pr-2 custom-scrollbar">
+      <div className="space-y-4 md:space-y-6 pr-1 custom-scrollbar">
         <InputControl
           label="初始本金"
           icon={Wallet}
@@ -74,7 +74,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({ values, onChange, onRe
 
         <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/50">
            <p className="text-xs text-slate-400 leading-relaxed">
-             <span className="text-brand-400 font-semibold">精算说明：</span> 本模型采用月复利逻辑（每月结算利息并计入下月本金）。实际结果受市场波动影响，仅供参考。
+             <span className="text-brand-400 font-semibold">精算说明：</span> 本模型采用月复利逻辑（每月结算利息并计入下月本金）。
            </p>
         </div>
       </div>

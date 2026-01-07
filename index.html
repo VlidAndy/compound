@@ -46,15 +46,15 @@
     <style>
       /* Custom Scrollbar */
       ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 6px;
+        height: 6px;
       }
       ::-webkit-scrollbar-track {
         background: #0f172a; 
       }
       ::-webkit-scrollbar-thumb {
         background: #334155; 
-        border-radius: 4px;
+        border-radius: 3px;
       }
       ::-webkit-scrollbar-thumb:hover {
         background: #475569; 
@@ -63,6 +63,7 @@
         background-color: #0f172a;
         color: #f8fafc;
         overflow-x: hidden;
+        -webkit-tap-highlight-color: transparent;
       }
       input[type=range] {
         -webkit-appearance: none;
@@ -70,17 +71,13 @@
       }
       input[type=range]::-webkit-slider-thumb {
         -webkit-appearance: none;
-        height: 20px;
-        width: 20px;
+        height: 18px;
+        width: 18px;
         border-radius: 50%;
         background: #0284c7;
-        margin-top: -8px; 
-        box-shadow: 0 0 10px rgba(2, 132, 199, 0.5);
+        margin-top: -7px; 
+        box-shadow: 0 0 8px rgba(2, 132, 199, 0.4);
         cursor: pointer;
-        transition: transform 0.1s;
-      }
-      input[type=range]::-webkit-slider-thumb:hover {
-        transform: scale(1.1);
       }
       input[type=range]::-webkit-slider-runnable-track {
         width: 100%;
