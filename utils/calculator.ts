@@ -77,11 +77,12 @@ export const calculateCompoundInterest = (
   };
 };
 
-export const formatCurrency = (val: number) => {
+export const formatCurrency = (val: number, decimals: number = 0) => {
   return new Intl.NumberFormat('zh-CN', {
     style: 'currency',
     currency: 'CNY',
-    maximumFractionDigits: 0,
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
   }).format(val);
 };
 
