@@ -1,5 +1,5 @@
 {
-  "name": "复利精算师 Pro",
-  "description": "Professional-grade compound interest calculator with real-time visualization, monthly compounding engine, and golden crossover analysis.",
+  "name": "资产管家 Pro",
+  "description": "Professional-grade asset manager and compound interest calculator with real-time visualization and data persistence.",
   "requestFramePermissions": []
 }

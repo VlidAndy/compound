@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ConfigPanel } from './components/ConfigPanel';
 import { Visualizer } from './components/Visualizer';
 import { AssetAllocation } from './components/AssetAllocation';
@@ -7,7 +7,12 @@ import { InputState, AppTool } from './types';
 import { Calculator, ChevronDown, TrendingUp, PieChart as PieIcon, LayoutDashboard } from 'lucide-react';
 
 const App: React.FC = () => {
-  const [activeTool, setActiveTool] = useState<AppTool>('calculator');
+  // 从 localStorage 初始化 activeTool
+  const [activeTool, setActiveTool] = useState<AppTool>(() => {
+    const saved = localStorage.getItem('active_tool');
+    return (saved as AppTool) || 'calculator';
+  });
+  
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const [inputs, setInputs] = useState<InputState>({
@@ -16,6 +21,11 @@ const App: React.FC = () => {
     annualRate: 8.0,
     years: 20
   });
+
+  // 监听 activeTool 变化并保存
+  useEffect(() => {
+    localStorage.setItem('active_tool', activeTool);
+  }, [activeTool]);
 
   const calculationResult = useMemo(() => {
     return calculateCompoundInterest(
@@ -67,7 +77,7 @@ const App: React.FC = () => {
               >
                 <div>
                   <h1 className="text-xl md:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-                    复利精算师 <span className="text-brand-400">Pro</span>
+                    资产管家 <span className="text-brand-400">Pro</span>
                     <ChevronDown size={18} className={`text-slate-500 transition-transform duration-300 ${isMenuOpen ? 'rotate-180' : ''}`} />
                   </h1>
                   <p className="text-slate-400 text-[10px] md:text-xs font-medium uppercase tracking-widest text-left">
