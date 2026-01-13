@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { ConfigPanel } from './components/ConfigPanel';
 import { Visualizer } from './components/Visualizer';
 import { AssetAllocation } from './components/AssetAllocation';
@@ -6,7 +6,7 @@ import { Holdings } from './components/Holdings';
 import { StrategyEngine } from './components/StrategyEngine';
 import { calculateCompoundInterest } from './utils/calculator';
 import { InputState, AppTool } from './types';
-import { Calculator, ChevronDown, TrendingUp, PieChart as PieIcon, LayoutDashboard, Briefcase, Zap } from 'lucide-react';
+import { Calculator, ChevronDown, TrendingUp, PieChart as PieIcon, LayoutDashboard, Briefcase, Zap, Download, Upload, FileJson } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTool, setActiveTool] = useState<AppTool>(() => {
@@ -15,17 +15,25 @@ const App: React.FC = () => {
   });
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [inputs, setInputs] = useState<InputState>({
-    initialPrincipal: 10000,
-    monthlyContribution: 2000,
-    annualRate: 8.0,
-    years: 20
+  const [inputs, setInputs] = useState<InputState>(() => {
+    const saved = localStorage.getItem('fund_app_inputs');
+    return saved ? JSON.parse(saved) : {
+      initialPrincipal: 10000,
+      monthlyContribution: 2000,
+      annualRate: 8.0,
+      years: 20
+    };
   });
 
   useEffect(() => {
     localStorage.setItem('active_tool', activeTool);
   }, [activeTool]);
+
+  useEffect(() => {
+    localStorage.setItem('fund_app_inputs', JSON.stringify(inputs));
+  }, [inputs]);
 
   const calculationResult = useMemo(() => {
     return calculateCompoundInterest(
@@ -47,6 +55,62 @@ const App: React.FC = () => {
       annualRate: 8.0,
       years: 20
     });
+  };
+
+  // 数据导出逻辑
+  const handleExportData = () => {
+    const keys = ['fund_transactions', 'fund_nav_cache', 'asset_items', 'fund_app_inputs', 'active_tool'];
+    const backup: Record<string, any> = {};
+    
+    keys.forEach(key => {
+      const val = localStorage.getItem(key);
+      if (val) {
+        try {
+          backup[key] = JSON.parse(val);
+        } catch {
+          backup[key] = val;
+        }
+      }
+    });
+
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const date = new Date().toISOString().split('T')[0];
+    
+    link.href = url;
+    link.download = `${date}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // 数据导入逻辑
+  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (typeof data !== 'object') throw new Error('Invalid format');
+
+        // 覆盖保存到 localStorage
+        Object.entries(data).forEach(([key, value]) => {
+          const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
+          localStorage.setItem(key, stringValue);
+        });
+
+        alert('数据恢复成功！应用即将刷新。');
+        window.location.reload();
+      } catch (err) {
+        alert('导入失败：文件格式不正确。');
+        console.error(err);
+      }
+    };
+    reader.readAsText(file);
   };
 
   const toolLabels: Record<AppTool, string> = {
@@ -123,9 +187,35 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-900/50 rounded-full border border-slate-700">
-             <LayoutDashboard size={14} className="text-slate-500" />
-             <span className="text-[10px] font-mono text-slate-400 uppercase tracking-tighter">Laboratory v1.8</span>
+          <div className="hidden md:flex items-center gap-4">
+            {/* 备份与恢复按钮组 */}
+            <div className="flex items-center bg-slate-900/50 rounded-full border border-slate-700 p-1">
+              <button 
+                onClick={handleExportData}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all uppercase tracking-tighter"
+              >
+                <Download size={12} className="text-brand-400" /> 备份
+              </button>
+              <div className="w-[1px] h-3 bg-slate-700 mx-0.5"></div>
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all uppercase tracking-tighter"
+              >
+                <Upload size={12} className="text-emerald-400" /> 恢复
+              </button>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleImportData} 
+                accept=".json" 
+                className="hidden" 
+              />
+            </div>
+
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900/50 rounded-full border border-slate-700">
+               <LayoutDashboard size={14} className="text-slate-500" />
+               <span className="text-[10px] font-mono text-slate-400 uppercase tracking-tighter">Laboratory v1.8</span>
+            </div>
           </div>
         </header>
 

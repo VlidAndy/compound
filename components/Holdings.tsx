@@ -27,7 +27,10 @@ export const Holdings: React.FC = () => {
   });
   
   const [loading, setLoading] = useState<Record<string, boolean>>({});
-  const [navData, setNavData] = useState<Record<string, NAVPoint[]>>({});
+  const [navData, setNavData] = useState<Record<string, NAVPoint[]>>(() => {
+    const saved = localStorage.getItem('fund_nav_cache');
+    return saved ? JSON.parse(saved) : {};
+  });
   const [selectedHolding, setSelectedHolding] = useState<Holding | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   
@@ -50,6 +53,11 @@ export const Holdings: React.FC = () => {
     });
   }, [transactions]);
 
+  // 当 navData 更新时，同步到缓存
+  useEffect(() => {
+    localStorage.setItem('fund_nav_cache', JSON.stringify(navData));
+  }, [navData]);
+
   const fetchData = async (code: string) => {
     setLoading(prev => ({ ...prev, [code]: true }));
     const data = await fetchFundData(code);
@@ -69,7 +77,7 @@ export const Holdings: React.FC = () => {
     return `${year}-${month}-${day}`;
   };
 
-  // 核心计算引擎：处理买入、卖出、分红再投
+  // 核心计算引擎
   const processedHoldings = useMemo(() => {
     const map = new Map<string, { holding: Holding, enhancedTxs: EnhancedTransaction[] }>();
     
@@ -106,7 +114,6 @@ export const Holdings: React.FC = () => {
         isPriceStale = false;
         tDayText = t.date;
       } else if (h.history.length > 0) {
-        // T+1 确认日回溯寻找 T日 净值
         const confirmIndex = h.history.findIndex(p => formatDateLocal(p.timestamp) >= confirmDateStr);
         if (confirmIndex > 0) {
           const tDayPoint = h.history[confirmIndex - 1];
@@ -145,17 +152,15 @@ export const Holdings: React.FC = () => {
     const result: Holding[] = [];
     map.forEach(entry => {
       const h = entry.holding;
-      let totalOutofPocketCost = 0; // 实际现金投入本金
+      let totalOutofPocketCost = 0; 
       
       entry.enhancedTxs.forEach(et => {
         if (et.type === 'buy') {
           totalOutofPocketCost += et.executedValue;
         } else if (et.type === 'sell') {
-          // 赎回逻辑：按比例扣减剩余本金
           const costToReduce = h.totalUnits > 0 ? (et.units / h.totalUnits) * totalOutofPocketCost : 0;
           totalOutofPocketCost = Math.max(0, totalOutofPocketCost - costToReduce);
         }
-        // 分红再投 (reinvest) 增加份额但不增加 totalOutofPocketCost，自然摊低 avgCost
       });
       
       h.avgCost = h.totalUnits > 0 ? totalOutofPocketCost / h.totalUnits : 1.0;
