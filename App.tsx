@@ -3,9 +3,10 @@ import { ConfigPanel } from './components/ConfigPanel';
 import { Visualizer } from './components/Visualizer';
 import { AssetAllocation } from './components/AssetAllocation';
 import { Holdings } from './components/Holdings';
+import { StrategyEngine } from './components/StrategyEngine';
 import { calculateCompoundInterest } from './utils/calculator';
 import { InputState, AppTool } from './types';
-import { Calculator, ChevronDown, TrendingUp, PieChart as PieIcon, LayoutDashboard, Briefcase } from 'lucide-react';
+import { Calculator, ChevronDown, TrendingUp, PieChart as PieIcon, LayoutDashboard, Briefcase, Zap } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTool, setActiveTool] = useState<AppTool>(() => {
@@ -51,7 +52,8 @@ const App: React.FC = () => {
   const toolLabels: Record<AppTool, string> = {
     calculator: '复利精算引擎',
     allocation: '资产配置看板',
-    holdings: '我的持仓与历史'
+    holdings: '我的持仓与历史',
+    strategy: '定投决策引擎'
   };
 
   const ToolIcon = ({ tool, size }: { tool: AppTool, size: number }) => {
@@ -59,6 +61,7 @@ const App: React.FC = () => {
       case 'calculator': return <Calculator size={size} />;
       case 'allocation': return <PieIcon size={size} />;
       case 'holdings': return <Briefcase size={size} />;
+      case 'strategy': return <Zap size={size} />;
     }
   };
 
@@ -97,9 +100,10 @@ const App: React.FC = () => {
                   <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)}></div>
                   <div className="absolute top-full left-0 mt-4 w-72 bg-slate-900/95 border border-slate-700 backdrop-blur-xl rounded-2xl shadow-2xl z-50 p-2 animate-in fade-in zoom-in-95 duration-200">
                     {[
+                      { id: 'strategy', title: '定投决策引擎', sub: '择时与再平衡算法', icon: <Zap size={18} className="text-amber-400" /> },
+                      { id: 'holdings', title: '我的持仓管理', sub: '历史交易与净值穿透', icon: <Briefcase size={18} className="text-brand-400" /> },
                       { id: 'calculator', title: '复利精算引擎', sub: '未来财富增长演练', icon: <TrendingUp size={18} /> },
                       { id: 'allocation', title: '资产配置看板', sub: '实时资产分布分析', icon: <PieIcon size={18} /> },
-                      { id: 'holdings', title: '我的持仓管理', sub: '历史交易与净值穿透', icon: <Briefcase size={18} /> },
                     ].map((tool) => (
                       <button 
                         key={tool.id}
@@ -121,7 +125,7 @@ const App: React.FC = () => {
 
           <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-900/50 rounded-full border border-slate-700">
              <LayoutDashboard size={14} className="text-slate-500" />
-             <span className="text-[10px] font-mono text-slate-400 uppercase tracking-tighter">Laboratory v1.5</span>
+             <span className="text-[10px] font-mono text-slate-400 uppercase tracking-tighter">Laboratory v1.8</span>
           </div>
         </header>
 
@@ -138,6 +142,7 @@ const App: React.FC = () => {
           )}
           {activeTool === 'allocation' && <AssetAllocation />}
           {activeTool === 'holdings' && <Holdings />}
+          {activeTool === 'strategy' && <StrategyEngine />}
         </main>
 
         <footer className="mt-auto pt-4 border-t border-slate-900 text-center">

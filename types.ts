@@ -40,6 +40,7 @@ export interface Transaction {
   category: FundCategory;
   units: number;
   date: string; // YYYY-MM-DD
+  timingAlpha?: number; // 择时收益 (对比周一基准)
 }
 
 export interface NAVPoint {
@@ -58,4 +59,4 @@ export interface Holding {
   transactions: Transaction[];
 }
 
-export type AppTool = 'calculator' | 'allocation' | 'holdings';
+export type AppTool = 'calculator' | 'allocation' | 'holdings' | 'strategy';
