@@ -106,6 +106,7 @@ export const Holdings: React.FC = () => {
         isPriceStale = false;
         tDayText = t.date;
       } else if (h.history.length > 0) {
+        // T+1 确认日回溯寻找 T日 净值
         const confirmIndex = h.history.findIndex(p => formatDateLocal(p.timestamp) >= confirmDateStr);
         if (confirmIndex > 0) {
           const tDayPoint = h.history[confirmIndex - 1];
@@ -144,17 +145,17 @@ export const Holdings: React.FC = () => {
     const result: Holding[] = [];
     map.forEach(entry => {
       const h = entry.holding;
-      let totalOutofPocketCost = 0; // 实际现金投入
+      let totalOutofPocketCost = 0; // 实际现金投入本金
       
       entry.enhancedTxs.forEach(et => {
         if (et.type === 'buy') {
           totalOutofPocketCost += et.executedValue;
         } else if (et.type === 'sell') {
-          // 卖出时按当前平均成本冲抵本金（简单加权平均法）
+          // 赎回逻辑：按比例扣减剩余本金
           const costToReduce = h.totalUnits > 0 ? (et.units / h.totalUnits) * totalOutofPocketCost : 0;
           totalOutofPocketCost = Math.max(0, totalOutofPocketCost - costToReduce);
         }
-        // 注意：type === 'reinvest' (分红) 增加份额但不增加 totalOutofPocketCost 本金投入
+        // 分红再投 (reinvest) 增加份额但不增加 totalOutofPocketCost，自然摊低 avgCost
       });
       
       h.avgCost = h.totalUnits > 0 ? totalOutofPocketCost / h.totalUnits : 1.0;
@@ -175,7 +176,6 @@ export const Holdings: React.FC = () => {
     return selectedHolding.history.filter(p => p.timestamp >= (earliestTxTs - padding));
   }, [selectedHolding]);
 
-  // 货币资产规模变化数据（用于柱状图）
   const cashScaleHistory = useMemo(() => {
     if (!selectedHolding || selectedHolding.category !== 'cash') return [];
     
@@ -253,12 +253,12 @@ export const Holdings: React.FC = () => {
           <div className="absolute top-0 right-0 p-8 opacity-10"><Wallet size={80} /></div>
           <span className="text-slate-400 text-xs font-semibold uppercase tracking-widest text-glow">持仓估值总额</span>
           <div className="text-3xl font-bold font-mono text-white mt-1">{formatCurrency(stats.totalMarketValue, 2)}</div>
-          <div className="text-xs text-slate-500 mt-2">现金成本投入: {formatCurrency(stats.totalCostValue, 2)}</div>
+          <div className="text-xs text-slate-500 mt-2">累计现金本金: {formatCurrency(stats.totalCostValue, 2)}</div>
         </div>
 
         <div className="bg-slate-900/50 border border-slate-700 p-6 rounded-3xl relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-8 opacity-10"><Activity size={80} /></div>
-          <span className="text-slate-400 text-xs font-semibold uppercase tracking-widest text-glow">历史累计总盈亏</span>
+          <span className="text-slate-400 text-xs font-semibold uppercase tracking-widest text-glow">历史累计盈亏</span>
           <div className={`text-3xl font-bold font-mono mt-1 ${stats.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
             {stats.profit >= 0 ? '+' : ''}{formatCurrency(stats.profit, 2)}
           </div>
@@ -282,7 +282,7 @@ export const Holdings: React.FC = () => {
             <h3 className="font-bold text-lg flex items-center gap-2">
               <Coins className="text-brand-400" size={20} /> 动态持仓精算视图
             </h3>
-            <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">本金成本核算法</span>
+            <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">基于单位净值(Net Worth)</span>
           </div>
 
           <div className="overflow-auto max-h-[600px] custom-scrollbar">
@@ -291,7 +291,7 @@ export const Holdings: React.FC = () => {
                 <tr>
                   <th className="px-6 py-4">资产名称</th>
                   <th className="px-6 py-4">持有份额</th>
-                  <th className="px-6 py-4">加权单价</th>
+                  <th className="px-6 py-4">单位成交价</th>
                   <th className="px-6 py-4 text-right">实时市值</th>
                   <th className="px-6 py-4 text-right">账面盈亏</th>
                 </tr>
@@ -318,7 +318,7 @@ export const Holdings: React.FC = () => {
                       <td className="px-6 py-5 font-mono text-sm">
                         <div className="text-brand-400 font-bold">{h.avgCost.toFixed(h.category === 'cash' ? 2 : 4)}</div>
                         <div className="text-[10px] text-slate-500 flex items-center gap-1">
-                          <Clock size={10} /> 摊薄后的持仓成本
+                          <Clock size={10} /> 摊薄后的单位成本
                         </div>
                       </td>
                       <td className="px-6 py-5 text-right font-mono font-bold text-white">
@@ -337,7 +337,7 @@ export const Holdings: React.FC = () => {
 
         <div className="lg:col-span-4 bg-slate-850 rounded-3xl border border-slate-700 p-6 flex flex-col items-center">
           <h3 className="font-bold text-lg mb-6 self-start flex items-center gap-2">
-            <PieIcon className="text-brand-400" size={20} /> 资产配置分布
+            <PieIcon className="text-brand-400" size={20} /> 市值分配比例
           </h3>
           {stats.pieData.length > 0 ? (
             <div className="w-full h-64 relative">
@@ -362,7 +362,7 @@ export const Holdings: React.FC = () => {
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">市值权重</span>
+                <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">分类占比</span>
               </div>
             </div>
           ) : (
@@ -377,7 +377,7 @@ export const Holdings: React.FC = () => {
           <div className="relative bg-slate-900 border border-slate-700 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95">
             <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-850">
               <h4 className="font-bold text-xl flex items-center gap-2 text-white">
-                <History className="text-brand-400" size={24} /> 交易记录录入
+                <History className="text-brand-400" size={24} /> 交易确认录入
               </h4>
               <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
             </div>
@@ -411,13 +411,13 @@ export const Holdings: React.FC = () => {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">资产名称</label>
-                  <input className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 text-white" value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="资产简称" />
+                  <input className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 text-white" value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="基金或资产简称" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">资产分类</label>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">资产类型</label>
                   <select className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 appearance-none text-white" value={form.category} onChange={e => setForm({...form, category: e.target.value as FundCategory})}>
                     <option value="stock">股票 / 偏股基金</option>
                     <option value="bond">债券 / 固收</option>
@@ -426,11 +426,11 @@ export const Holdings: React.FC = () => {
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">交易类型</label>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">交易动作</label>
                   <div className="flex p-1 bg-slate-950 rounded-xl border border-slate-700">
                     {['buy', 'sell', 'reinvest'].map(type => (
                       <button key={type} onClick={() => setForm({...form, type: type as TransactionType})} className={`flex-1 py-2 text-[10px] font-bold uppercase rounded-lg transition-all ${form.type === type ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20' : 'text-slate-500 hover:text-slate-300'}`}>
-                        {type === 'buy' ? '买入' : type === 'sell' ? '卖出' : '分红'}
+                        {type === 'buy' ? '申购' : type === 'sell' ? '赎回' : '分红'}
                       </button>
                     ))}
                   </div>
@@ -439,25 +439,25 @@ export const Holdings: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">份额 / 数量</label>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">成交份额</label>
                   <input type="number" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 font-mono text-white" value={form.units || ''} onChange={e => setForm({...form, units: parseFloat(e.target.value)})} placeholder="0.00" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">确认/交易日期 (T+1)</label>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">确认日期 (T+1)</label>
                   <input type="date" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 font-mono text-white" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
                 </div>
               </div>
 
-              <div className="p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl flex items-start gap-3">
+              <div className="p-4 bg-brand-500/5 border border-brand-500/20 rounded-xl flex items-start gap-3">
                 <Zap size={18} className="text-brand-400 mt-0.5 shrink-0" />
                 <div className="text-[11px] text-slate-400 leading-relaxed">
-                  <span className="text-slate-200 font-bold">分红逻辑说明：</span> 
-                  选择“分红”将增加资产份额，但<span className="text-brand-400 font-bold">不会增加本金投入金额</span>。这会摊薄加权均价，真实反映收益对持仓的贡献。
+                  <span className="text-slate-200 font-bold">净值采集算法 (Net Worth)：</span> 
+                  系统将采集“单位净值”而非“累计净值”。分红再投将摊薄您的单位持仓成本，真实反映资产增值与现金投入的比例。
                 </div>
               </div>
 
-              <button onClick={handleAdd} className="w-full bg-brand-600 hover:bg-brand-500 py-4 rounded-2xl font-bold text-white shadow-lg shadow-brand-600/20 transition-all active:scale-[0.98] mt-4">
-                确认保存记录
+              <button onClick={handleAdd} className="w-full bg-brand-600 hover:bg-brand-500 py-4 rounded-2xl font-bold text-white shadow-lg shadow-brand-500/20 transition-all active:scale-[0.98] mt-4">
+                确认录入记录
               </button>
             </div>
           </div>
@@ -485,9 +485,9 @@ export const Holdings: React.FC = () => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                   { label: '总持仓份额', value: selectedHolding.totalUnits.toFixed(2), unit: '份' },
-                  { label: '加权平均价', value: selectedHolding.avgCost.toFixed(selectedHolding.category === 'cash' ? 2 : 4), highlight: true, highlightColor: 'text-brand-400' },
-                  { label: '最新参考价', value: selectedHolding.currentNAV.toFixed(selectedHolding.category === 'cash' ? 2 : 4) },
-                  { label: '累计预估盈亏', value: formatCurrency((selectedHolding.currentNAV - selectedHolding.avgCost) * selectedHolding.totalUnits, 2), highlight: true },
+                  { label: '摊薄平均价', value: selectedHolding.avgCost.toFixed(selectedHolding.category === 'cash' ? 2 : 4), highlight: true, highlightColor: 'text-brand-400' },
+                  { label: '最新单位净值', value: selectedHolding.currentNAV.toFixed(selectedHolding.category === 'cash' ? 2 : 4) },
+                  { label: '账面总盈亏', value: formatCurrency((selectedHolding.currentNAV - selectedHolding.avgCost) * selectedHolding.totalUnits, 2), highlight: true },
                 ].map((item, i) => (
                   <div key={i} className="bg-slate-800/30 border border-slate-700/50 p-4 rounded-2xl">
                     <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{item.label}</p>
@@ -500,7 +500,7 @@ export const Holdings: React.FC = () => {
 
               <div className="space-y-4">
                 <h5 className="font-bold flex items-center gap-2 text-slate-300 border-b border-slate-800 pb-2">
-                  <Calendar size={18} className="text-brand-400" /> 历史往来明细
+                  <Calendar size={18} className="text-brand-400" /> 单位净值穿透记录 (T日成交)
                 </h5>
                 <div className="space-y-3">
                   {selectedHolding.transactions.sort((a,b) => b.date.localeCompare(a.date)).map((t: any) => (
@@ -511,9 +511,9 @@ export const Holdings: React.FC = () => {
                         </div>
                         <div>
                           <div className="text-sm font-bold text-slate-200">
-                            {t.type === 'buy' ? '现金买入' : t.type === 'sell' ? '现金赎回' : '红利再投 / 盈余增持'}
+                            {t.type === 'buy' ? '买入' : t.type === 'sell' ? '赎回' : '分红增持'}
                           </div>
-                          <div className="text-[10px] text-slate-500 font-mono mt-0.5 italic">日期: {t.date}</div>
+                          <div className="text-[10px] text-slate-500 font-mono mt-0.5 italic">确认日: {t.date}</div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -521,7 +521,7 @@ export const Holdings: React.FC = () => {
                           {t.type === 'sell' ? '-' : '+'}{t.units.toFixed(2)} <span className="text-[10px] opacity-40">份</span>
                         </div>
                         <div className={`flex items-center justify-end gap-1.5 text-[10px] mt-1.5 font-bold ${t.type === 'reinvest' ? 'text-brand-400' : 'text-slate-500'}`}>
-                          <Target size={12} /> {t.type === 'reinvest' ? '分红估值' : '成交价'}: {t.executedPrice.toFixed(selectedHolding.category === 'cash' ? 2 : 4)}
+                          <Target size={12} /> {t.type === 'reinvest' ? '分红基准' : '成交价(T日)'}: {t.executedPrice.toFixed(selectedHolding.category === 'cash' ? 2 : 4)}
                         </div>
                       </div>
                       <button onClick={() => { removeTx(t.id); setSelectedHolding(null); }} className="opacity-0 group-hover:opacity-100 p-2 text-slate-600 hover:text-red-400 transition-all rounded-lg ml-2">
@@ -536,7 +536,7 @@ export const Holdings: React.FC = () => {
                 <div className="flex items-center justify-between mb-6">
                   <h5 className="font-bold flex items-center gap-2 text-slate-300">
                     {selectedHolding.category === 'cash' ? <BarChart3 size={18} className="text-brand-400" /> : <LineChart size={18} className="text-brand-400" />}
-                    {selectedHolding.category === 'cash' ? '货币资产存量增长趋势' : '净值波动与成交锚点'}
+                    {selectedHolding.category === 'cash' ? '存量变化趋势' : '单位净值波动与成交锚点'}
                   </h5>
                 </div>
                 <div className="h-64">
@@ -548,7 +548,6 @@ export const Holdings: React.FC = () => {
                         <YAxis hide domain={[0, 'auto']} />
                         <ChartTooltip 
                           contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '12px' }}
-                          labelStyle={{ color: '#94a3b8', fontSize: '10px', marginBottom: '4px' }}
                         />
                         <Bar dataKey="balance" fill="#10b981" radius={[6, 6, 0, 0]} barSize={40} />
                       </BarChart>
@@ -572,8 +571,8 @@ export const Holdings: React.FC = () => {
                 </div>
                 <p className="text-[10px] text-slate-600 text-center mt-4 italic font-medium">
                   {selectedHolding.category === 'cash' 
-                    ? "含分红与现金注入的阶梯规模展示" 
-                    : "绿色锚点定位至历史成交点，分红记录不产生本金变动"}
+                    ? "展示历史资金流入后的存量阶梯" 
+                    : "绿色锚点锁定 T日 单位净值。分红记录仅增加份额，不增加现金本金。"}
                 </p>
               </div>
             </div>

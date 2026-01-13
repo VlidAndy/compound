@@ -11,10 +11,24 @@ export const fetchFundData = async (code: string): Promise<NAVPoint[]> => {
     if (!response.ok) throw new Error('Network response was not ok');
     
     const text = await response.text();
-    const match = text.match(/var Data_ACWorthTrend = (\[\[.*?\]\]);/);
+    
+    // 关键修正：从 Data_ACWorthTrend 切换为 Data_netWorthTrend (单位净值)
+    // 单位净值是包含分红除权后的价格，更符合买入时的成交报价
+    const match = text.match(/var Data_netWorthTrend = (\[\{.*?\}\]);/);
     
     if (match && match[1]) {
-      const data: [number, number][] = JSON.parse(match[1]);
+      // Data_netWorthTrend 的结构是 [{"x": timestamp, "y": nav, "equityReturn": ...}, ...]
+      const rawData = JSON.parse(match[1]);
+      return rawData.map((item: any) => ({
+        timestamp: item.x,
+        nav: item.y
+      }));
+    }
+    
+    // 兜底逻辑：如果某些极个别基金没有 netWorthTrend，尝试回退到 ACWorthTrend
+    const fallbackMatch = text.match(/var Data_ACWorthTrend = (\[\[.*?\]\]);/);
+    if (fallbackMatch && fallbackMatch[1]) {
+      const data: [number, number][] = JSON.parse(fallbackMatch[1]);
       return data.map(([timestamp, nav]) => ({ timestamp, nav }));
     }
     
