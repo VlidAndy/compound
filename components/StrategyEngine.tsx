@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-// Fix: Added 'Clock' to the imports from lucide-react
-import { TrendingDown, TrendingUp, AlertTriangle, CheckCircle2, Coins, ArrowRight, Wallet, Info, Zap, ChevronRight, Activity, ShoppingCart, Timer, Edit3, Save, Clock } from 'lucide-react';
+import { TrendingDown, TrendingUp, AlertTriangle, CheckCircle2, Coins, ArrowRight, Wallet, Info, Zap, ChevronRight, Activity, ShoppingCart, Timer, Edit3, Save, Clock, RefreshCcw } from 'lucide-react';
 import { Transaction, Holding, FundCategory, NAVPoint } from '../types';
 import { fetchRealtimeValuation, findMondayBaseline, getCategoryName } from '../utils/fundApi';
 import { formatCurrency } from '../utils/calculator';
@@ -11,8 +10,8 @@ interface StrategyDecision {
   name: string;
   category: FundCategory;
   suggestedAmount: number;
-  actualAmount: number;   // 用户可编辑
-  actualUnits: number;    // 用户可编辑（T+1确认后）
+  actualAmount: number;
+  actualUnits: number;
   timingGap: number; 
   mondayNAV: number;
   currentNAV: number;
@@ -26,10 +25,10 @@ export const StrategyEngine: React.FC = () => {
   
   const [navData, setNavData] = useState<Record<string, NAVPoint[]>>({});
   const [budget, setBudget] = useState<200 | 300>(200);
-  const [realtimeData, setRealtimeData] = useState<Record<string, number>>({});
+  const [realtimeData, setRecordRealtime] = useState<Record<string, number>>({});
   const [isSyncing, setIsSyncing] = useState(false);
   
-  // 用于存储用户在清单中编辑的临时状态
+  const [userSelectedCodes, setUserSelectedCodes] = useState<Record<string, string>>({});
   const [editableDecisions, setEditableDecisions] = useState<StrategyDecision[]>([]);
 
   useEffect(() => {
@@ -59,6 +58,14 @@ export const StrategyEngine: React.FC = () => {
     return Array.from(map.values()).filter(h => h.totalUnits > 0);
   }, [transactions, navData]);
 
+  const holdingsByCategory = useMemo(() => {
+    const groups: Record<string, Holding[]> = { stock: [], bond: [], gold: [], cash: [] };
+    holdings.forEach(h => {
+      if (groups[h.category]) groups[h.category].push(h);
+    });
+    return groups;
+  }, [holdings]);
+
   const categoryValues = useMemo(() => {
     const vals: Record<FundCategory, number> = { stock: 0, bond: 0, gold: 0, cash: 0 };
     holdings.forEach(h => {
@@ -77,25 +84,42 @@ export const StrategyEngine: React.FC = () => {
       const val = await fetchRealtimeValuation(code);
       if (val) results[code] = val;
     }
-    setRealtimeData(results);
+    setRecordRealtime(results);
     setIsSyncing(false);
   };
 
-  // 生成初始决策建议
+  const handleSwapFund = (category: FundCategory) => {
+    const available = holdingsByCategory[category];
+    if (available.length <= 1) return;
+    const currentDecision = editableDecisions.find(d => d.category === category);
+    if (!currentDecision) return;
+    const currentIndex = available.findIndex(h => h.code === currentDecision.code);
+    const nextIndex = (currentIndex + 1) % available.length;
+    const nextFund = available[nextIndex];
+    setUserSelectedCodes(prev => ({ ...prev, [category]: nextFund.code }));
+  };
+
   useEffect(() => {
     if (holdings.length === 0) return;
 
-    const preferredPerCategory: Partial<Record<FundCategory, Holding>> = {};
-    holdings.forEach(h => {
-      const current = preferredPerCategory[h.category];
-      if (!current || h.totalUnits > current.totalUnits) {
-        preferredPerCategory[h.category] = h;
+    const selectedPerCategory: Partial<Record<FundCategory, Holding>> = {};
+    (['stock', 'bond', 'gold', 'cash'] as FundCategory[]).forEach(cat => {
+      const available = holdingsByCategory[cat];
+      if (available.length === 0) return;
+      const userChoice = userSelectedCodes[cat];
+      const found = userChoice ? available.find(h => h.code === userChoice) : null;
+      if (found) {
+        selectedPerCategory[cat] = found;
+      } else {
+        selectedPerCategory[cat] = [...available].sort((a, b) => b.totalUnits - a.totalUnits)[0];
       }
     });
 
     const totalValue = (Object.values(categoryValues) as number[]).reduce((a, b) => a + b, 0);
-    const targetValue = (totalValue + budget) / 4; 
-    let remainingBudget = budget;
+    // targetValue 也应当进行舍入以保持一致性
+    const targetValue = parseFloat(((totalValue + budget) / 4).toFixed(2)); 
+    // Fix: Explicitly type as number to avoid literal type inference '200 | 300' which causes issues on reassignment
+    let remainingBudget: number = budget;
     const initialDecisions: StrategyDecision[] = [];
 
     const gaps = (['stock', 'gold', 'bond', 'cash'] as FundCategory[]).map(cat => ({
@@ -105,15 +129,20 @@ export const StrategyEngine: React.FC = () => {
 
     for (const g of gaps) {
       if (remainingBudget <= 0) break;
-      const h = preferredPerCategory[g.cat];
+      const h = selectedPerCategory[g.cat];
       if (!h) continue;
-      const give = Math.min(remainingBudget, g.gap);
+      
+      let give = Math.min(remainingBudget, g.gap);
       if (give > 0) {
+        // 关键修正：对每一笔计算出的分配额立即进行两位小数舍入
+        const roundedAmount = parseFloat(give.toFixed(2));
+        if (roundedAmount <= 0) continue;
+
         if (h.category === 'cash') {
           initialDecisions.push({
             code: h.code, name: h.name, category: h.category,
-            suggestedAmount: Math.round(give), actualAmount: Math.round(give),
-            actualUnits: Math.round(give), // 货币基金份额通常等于金额
+            suggestedAmount: roundedAmount, actualAmount: roundedAmount,
+            actualUnits: roundedAmount,
             timingGap: 0, mondayNAV: 1.0, currentNAV: 1.0
           });
         } else {
@@ -124,25 +153,37 @@ export const StrategyEngine: React.FC = () => {
 
           initialDecisions.push({
             code: h.code, name: h.name, category: h.category,
-            suggestedAmount: Math.round(give), actualAmount: Math.round(give),
-            actualUnits: parseFloat((give / currentPrice).toFixed(2)),
+            suggestedAmount: roundedAmount, actualAmount: roundedAmount,
+            actualUnits: parseFloat((roundedAmount / currentPrice).toFixed(2)),
             timingGap: gapPct, mondayNAV: mondayPrice, currentNAV: currentPrice
           });
         }
-        remainingBudget -= give;
+        // 剩余预算也必须严格舍入
+        remainingBudget = parseFloat((remainingBudget - roundedAmount).toFixed(2));
       }
     }
+
+    // 最后的差额补齐：确保总额严格等于 budget
     if (remainingBudget > 0 && initialDecisions.length > 0) {
-      initialDecisions[0].suggestedAmount += remainingBudget;
-      initialDecisions[0].actualAmount += remainingBudget;
+      const first = initialDecisions[0];
+      const newAmount = parseFloat((first.actualAmount + remainingBudget).toFixed(2));
+      first.suggestedAmount = newAmount;
+      first.actualAmount = newAmount;
+      
+      if (first.category !== 'cash') {
+        first.actualUnits = parseFloat((newAmount / first.currentNAV).toFixed(2));
+      } else {
+        first.actualUnits = newAmount;
+      }
+      remainingBudget = 0;
     }
+    
     setEditableDecisions(initialDecisions);
-  }, [holdings.length, budget, realtimeData]); // 当 budget 或实时行情变化时刷新建议
+  }, [holdings.length, budget, realtimeData, userSelectedCodes]);
 
   const globalSignal = useMemo(() => {
     const stockGap = editableDecisions.find(d => d.category === 'stock')?.timingGap || 0;
     const goldGap = editableDecisions.find(d => d.category === 'gold')?.timingGap || 0;
-    // 条件：跌幅超过 1.5% 触发高亮建议
     if (stockGap <= -0.015 || goldGap <= -0.015) return 'high'; 
     if (stockGap < 0 || goldGap < 0) return 'good';
     return 'warning';
@@ -150,7 +191,8 @@ export const StrategyEngine: React.FC = () => {
 
   const updateDecisionField = (index: number, field: 'actualAmount' | 'actualUnits', value: number) => {
     const next = [...editableDecisions];
-    next[index] = { ...next[index], [field]: value };
+    const safeValue = isNaN(value) ? 0 : value;
+    next[index] = { ...next[index], [field]: safeValue };
     setEditableDecisions(next);
   };
 
@@ -163,24 +205,19 @@ export const StrategyEngine: React.FC = () => {
       category: d.category,
       units: d.actualUnits,
       date: new Date().toISOString().split('T')[0],
-      // Alpha收益计算：(周一价格 - 实际价格) * 确认份额
-      // 实际上：周一价格 * 份额 - 实际花费金额
-      timingAlpha: (d.mondayNAV * d.actualUnits) - d.actualAmount
+      timingAlpha: parseFloat(((d.mondayNAV * d.actualUnits) - d.actualAmount).toFixed(4))
     }));
 
     const updated = [...transactions, ...newTxs];
     setTransactions(updated);
     localStorage.setItem('fund_transactions', JSON.stringify(updated));
-    
     const totalAlpha = newTxs.reduce((a, b) => a + (b.timingAlpha || 0), 0);
-    // Fix: Replaced undefined variable 'd' with a sum of 'actualAmount' from editableDecisions
     const totalActualAmount = editableDecisions.reduce((a, b) => a + b.actualAmount, 0);
-    alert(`入库成功！\n实际记录成交金额：${formatCurrency(totalActualAmount, 2)}\n本周择时 Alpha 收益：${formatCurrency(totalAlpha, 2)}`);
+    alert(`入库成功！\n实际记录成交金额：${formatCurrency(totalActualAmount, 2)}\n本周择时 Alpha 收益：${formatCurrency(totalAlpha, 4)}`);
   };
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500 pb-12">
-      {/* 状态卡片 */}
       <div className={`p-8 rounded-[2.5rem] relative overflow-hidden transition-all duration-700 border-2 ${
         globalSignal === 'high' ? 'bg-emerald-950/40 border-emerald-400 shadow-[0_0_50px_rgba(52,211,153,0.15)]' :
         globalSignal === 'good' ? 'bg-blue-950/40 border-brand-500 shadow-[0_0_40px_rgba(14,165,233,0.1)]' :
@@ -229,7 +266,6 @@ export const StrategyEngine: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* 左侧：补平分析 */}
         <div className="lg:col-span-4 flex flex-col gap-6">
           <div className="bg-slate-900/60 border border-slate-800 rounded-[2rem] p-8 space-y-8 backdrop-blur-xl">
             <div className="flex items-center justify-between">
@@ -267,16 +303,14 @@ export const StrategyEngine: React.FC = () => {
               })}
             </div>
           </div>
-          
           <div className="bg-slate-900/40 p-6 rounded-[1.5rem] border border-slate-800/50 flex gap-4">
             <Info size={18} className="text-slate-600 shrink-0" />
             <p className="text-[11px] text-slate-500 leading-relaxed italic">
-              算法提示：系统已锁定周一单位净值。择时 Alpha 仅在“实际买入价”低于“周一基准价”时为正。建议在 T+1 日确认份额后录入准确数据。
+              算法提示：实际成交金额和份额已自动舍入。确认日 (T+1) 录入真实份额后可锁定更精准的择时 Alpha。
             </p>
           </div>
         </div>
 
-        {/* 右侧：执行清单（可编辑） */}
         <div className="lg:col-span-8 bg-slate-900/60 border border-slate-800 rounded-[2.5rem] overflow-hidden flex flex-col shadow-2xl backdrop-blur-xl">
            <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
              <h3 className="font-black text-white flex items-center gap-3 uppercase tracking-wider text-sm">
@@ -292,12 +326,23 @@ export const StrategyEngine: React.FC = () => {
              {editableDecisions.length > 0 ? (
                <div className="space-y-6">
                  {editableDecisions.map((d, idx) => (
-                   <div key={d.code} className="bg-slate-800/40 border border-white/5 p-6 rounded-3xl hover:border-white/10 transition-all">
+                   <div key={d.code} className="bg-slate-800/40 border border-white/5 p-6 rounded-3xl hover:border-white/10 transition-all animate-in fade-in zoom-in-95">
                      <div className="flex flex-col md:flex-row gap-6 md:items-center justify-between">
                         <div className="flex items-center gap-4 min-w-[200px]">
                            <div className="w-1.5 h-12 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[d.category] }}></div>
                            <div>
-                             <div className="text-lg font-black text-white">{d.name}</div>
+                             <div className="flex items-center gap-2">
+                               <div className="text-lg font-black text-white">{d.name}</div>
+                               {holdingsByCategory[d.category].length > 1 && (
+                                 <button 
+                                   onClick={() => handleSwapFund(d.category)}
+                                   className="p-1.5 rounded-lg bg-slate-900/50 text-slate-500 hover:text-brand-400 hover:bg-slate-900 transition-all active:rotate-180"
+                                   title="切换同类资产下的其他持仓"
+                                 >
+                                   <RefreshCcw size={12} />
+                                 </button>
+                               )}
+                             </div>
                              <div className="flex items-center gap-2 mt-1">
                                <span className="text-[10px] font-mono text-slate-500">{d.code}</span>
                                {d.category !== 'cash' && (
@@ -316,6 +361,7 @@ export const StrategyEngine: React.FC = () => {
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">¥</span>
                                 <input 
                                   type="number" 
+                                  step="0.01"
                                   value={d.actualAmount} 
                                   onChange={e => updateDecisionField(idx, 'actualAmount', parseFloat(e.target.value))}
                                   className="w-full bg-slate-900 border border-white/5 rounded-xl pl-7 pr-3 py-2.5 text-sm font-mono text-white focus:border-brand-500 outline-none"
@@ -327,6 +373,7 @@ export const StrategyEngine: React.FC = () => {
                               <div className="relative">
                                 <input 
                                   type="number" 
+                                  step="0.01"
                                   value={d.actualUnits} 
                                   onChange={e => updateDecisionField(idx, 'actualUnits', parseFloat(e.target.value))}
                                   className="w-full bg-slate-900 border border-white/5 rounded-xl px-3 py-2.5 text-sm font-mono text-emerald-400 focus:border-brand-500 outline-none"
@@ -346,11 +393,6 @@ export const StrategyEngine: React.FC = () => {
                     >
                       <Save size={24} /> 确认入库并锁定 Alpha 收益
                     </button>
-                    <div className="mt-6 flex items-center justify-center gap-4 text-[10px] font-bold text-slate-600 uppercase tracking-widest">
-                       <div className="flex items-center gap-1"><Edit3 size={12} /> 手动核对</div>
-                       <div className="w-1 h-1 bg-slate-700 rounded-full"></div>
-                       <div className="flex items-center gap-1"><CheckCircle2 size={12} /> 真实持久化</div>
-                    </div>
                  </div>
                </div>
              ) : (
