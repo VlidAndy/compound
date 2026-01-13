@@ -29,4 +29,33 @@ export interface AssetItem {
   color: string;
 }
 
-export type AppTool = 'calculator' | 'allocation';
+export type FundCategory = 'gold' | 'stock' | 'bond' | 'cash';
+export type TransactionType = 'buy' | 'sell' | 'reinvest';
+
+export interface Transaction {
+  id: string;
+  code: string;
+  name: string;
+  type: TransactionType;
+  category: FundCategory;
+  units: number;
+  date: string; // YYYY-MM-DD
+}
+
+export interface NAVPoint {
+  timestamp: number;
+  nav: number;
+}
+
+export interface Holding {
+  code: string;
+  name: string;
+  category: FundCategory;
+  totalUnits: number;
+  avgCost: number;
+  currentNAV: number;
+  history: NAVPoint[];
+  transactions: Transaction[];
+}
+
+export type AppTool = 'calculator' | 'allocation' | 'holdings';
