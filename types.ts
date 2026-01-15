@@ -1,3 +1,4 @@
+
 export interface YearlyData {
   year: number;
   totalPrincipal: number; 
@@ -39,6 +40,7 @@ export interface Transaction {
   type: TransactionType;
   category: FundCategory;
   units: number;
+  amount?: number; // 新增：实际成交的现金总额
   date: string; // YYYY-MM-DD
   timingAlpha?: number; // 择时收益 (对比周一基准)
 }

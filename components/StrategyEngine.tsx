@@ -116,9 +116,7 @@ export const StrategyEngine: React.FC = () => {
     });
 
     const totalValue = (Object.values(categoryValues) as number[]).reduce((a, b) => a + b, 0);
-    // targetValue 也应当进行舍入以保持一致性
     const targetValue = parseFloat(((totalValue + budget) / 4).toFixed(2)); 
-    // Fix: Explicitly type as number to avoid literal type inference '200 | 300' which causes issues on reassignment
     let remainingBudget: number = budget;
     const initialDecisions: StrategyDecision[] = [];
 
@@ -134,7 +132,6 @@ export const StrategyEngine: React.FC = () => {
       
       let give = Math.min(remainingBudget, g.gap);
       if (give > 0) {
-        // 关键修正：对每一笔计算出的分配额立即进行两位小数舍入
         const roundedAmount = parseFloat(give.toFixed(2));
         if (roundedAmount <= 0) continue;
 
@@ -158,12 +155,10 @@ export const StrategyEngine: React.FC = () => {
             timingGap: gapPct, mondayNAV: mondayPrice, currentNAV: currentPrice
           });
         }
-        // 剩余预算也必须严格舍入
         remainingBudget = parseFloat((remainingBudget - roundedAmount).toFixed(2));
       }
     }
 
-    // 最后的差额补齐：确保总额严格等于 budget
     if (remainingBudget > 0 && initialDecisions.length > 0) {
       const first = initialDecisions[0];
       const newAmount = parseFloat((first.actualAmount + remainingBudget).toFixed(2));
@@ -204,6 +199,7 @@ export const StrategyEngine: React.FC = () => {
       type: 'buy',
       category: d.category,
       units: d.actualUnits,
+      amount: d.actualAmount, // 核心修正：保存实际成交金额，确保成本计算不依赖于后续的异步净值同步
       date: new Date().toISOString().split('T')[0],
       timingAlpha: parseFloat(((d.mondayNAV * d.actualUnits) - d.actualAmount).toFixed(4))
     }));

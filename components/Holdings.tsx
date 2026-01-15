@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, LineChart, PieChart as PieIcon, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Coins, History, Loader2, X, Target, Info, Zap, Clock, MousePointer2, BarChart3, TrendingUp, RefreshCw } from 'lucide-react';
 import { Transaction, Holding, FundCategory, TransactionType, NAVPoint } from '../types';
@@ -12,12 +13,11 @@ const CATEGORY_COLORS: Record<FundCategory, string> = {
   cash: '#10b981'
 };
 
-// 扩展交易接口，用于存储计算出的成交详情
 interface EnhancedTransaction extends Transaction {
-  executedPrice: number;    // T日实际成交价
-  executedValue: number;    // T日成交金额
-  tDayText?: string;        // T日日期文本
-  isPriceStale?: boolean;   // 标记是否因为找不到T日而使用了回退值
+  executedPrice: number;    
+  executedValue: number;    
+  tDayText?: string;        
+  isPriceStale?: boolean;   
 }
 
 export const Holdings: React.FC = () => {
@@ -41,6 +41,7 @@ export const Holdings: React.FC = () => {
     type: 'buy',
     category: 'stock',
     units: 0,
+    amount: undefined, // 新增：手动录入时的实际成交金额
     date: new Date().toISOString().split('T')[0]
   });
 
@@ -54,7 +55,6 @@ export const Holdings: React.FC = () => {
     });
   }, [transactions]);
 
-  // 当 navData 更新时，同步到缓存
   useEffect(() => {
     localStorage.setItem('fund_nav_cache', JSON.stringify(navData));
   }, [navData]);
@@ -74,14 +74,10 @@ export const Holdings: React.FC = () => {
     if (codes.length === 0) return;
 
     setIsSyncingAll(true);
-    // 并行请求所有基金数据
     await Promise.all(codes.map(code => fetchData(code)));
     setIsSyncingAll(false);
   };
 
-  /**
-   * 使用本地时间格式化日期。
-   */
   const formatDateLocal = (input: number | string) => {
     const d = new Date(input);
     if (isNaN(d.getTime())) return '';
@@ -91,7 +87,6 @@ export const Holdings: React.FC = () => {
     return `${year}-${month}-${day}`;
   };
 
-  // 核心计算引擎
   const processedHoldings = useMemo(() => {
     const map = new Map<string, { holding: Holding, enhancedTxs: EnhancedTransaction[] }>();
     
@@ -118,12 +113,17 @@ export const Holdings: React.FC = () => {
       const entry = map.get(t.code)!;
       const h = entry.holding;
       
-      let executedPrice = 1.0; 
-      let tDayText = h.category === 'cash' ? t.date : '计算中...';
+      let executedPrice = 0; 
+      let tDayText = h.category === 'cash' ? t.date : '估算中...';
       let isPriceStale = true;
       const confirmDateStr = t.date;
       
-      if (h.category === 'cash') {
+      // 核心计算修正：优先使用交易记录中的 amount
+      if (t.amount !== undefined && t.amount !== null && t.units > 0) {
+        executedPrice = t.amount / t.units;
+        isPriceStale = false;
+        tDayText = "记录固定金额";
+      } else if (h.category === 'cash') {
         executedPrice = 1.0;
         isPriceStale = false;
         tDayText = t.date;
@@ -144,12 +144,15 @@ export const Holdings: React.FC = () => {
           tDayText = `暂取最新(${formatDateLocal(latest.timestamp)})`;
           isPriceStale = true;
         }
+      } else {
+        // 如果没有记录金额且没有历史数据，暂时使用 1.0 或 尝试寻找现成的 currentNAV
+        executedPrice = h.currentNAV || 1.0;
       }
 
       const enhanced: EnhancedTransaction = {
         ...t,
         executedPrice,
-        executedValue: t.units * executedPrice,
+        executedValue: t.amount !== undefined ? t.amount : (t.units * executedPrice),
         tDayText,
         isPriceStale
       };
@@ -172,12 +175,12 @@ export const Holdings: React.FC = () => {
         if (et.type === 'buy') {
           totalOutofPocketCost += et.executedValue;
         } else if (et.type === 'sell') {
-          const costToReduce = h.totalUnits > 0 ? (et.units / h.totalUnits) * totalOutofPocketCost : 0;
+          const costToReduce = h.totalUnits > 0 ? (et.units / (h.totalUnits + et.units)) * totalOutofPocketCost : 0;
           totalOutofPocketCost = Math.max(0, totalOutofPocketCost - costToReduce);
         }
       });
       
-      h.avgCost = h.totalUnits > 0 ? totalOutofPocketCost / h.totalUnits : 1.0;
+      h.avgCost = h.totalUnits > 0 ? totalOutofPocketCost / h.totalUnits : 0;
       h.transactions = entry.enhancedTxs;
       
       if (h.totalUnits > 0.0001) {
@@ -242,14 +245,15 @@ export const Holdings: React.FC = () => {
       id: Date.now().toString(),
       code: form.code!,
       name: form.name!,
-      type: 'buy',
+      type: form.type || 'buy',
       category: form.category!,
       units: Number(form.units),
+      amount: form.amount ? Number(form.amount) : undefined, // 保存手动录入的金额
       date: form.date!
     };
     setTransactions([...transactions, newTx]);
     setShowAddModal(false);
-    setForm({ ...form, code: '', name: '', units: 0 });
+    setForm({ ...form, code: '', name: '', units: 0, amount: undefined });
   };
 
   const removeTx = (id: string) => {
@@ -487,16 +491,21 @@ export const Holdings: React.FC = () => {
                   <input type="number" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 font-mono text-white" value={form.units || ''} onChange={e => setForm({...form, units: parseFloat(e.target.value)})} placeholder="0.00" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">确认日期 (T+1)</label>
-                  <input type="date" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 font-mono text-white" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">成交金额 (可选)</label>
+                  <input type="number" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 font-mono text-white" value={form.amount || ''} onChange={e => setForm({...form, amount: parseFloat(e.target.value)})} placeholder="留空则按净值估算" />
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">确认日期 (T+1)</label>
+                <input type="date" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 font-mono text-white" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
               </div>
 
               <div className="p-4 bg-brand-500/5 border border-brand-500/20 rounded-xl flex items-start gap-3">
                 <Zap size={18} className="text-brand-400 mt-0.5 shrink-0" />
                 <div className="text-[11px] text-slate-400 leading-relaxed">
-                  <span className="text-slate-200 font-bold">净值采集算法 (Net Worth)：</span> 
-                  系统将采集“单位净值”而非“累计净值”。分红再投将摊薄您的单位持仓成本，真实反映资产增值与现金投入的比例。
+                  <span className="text-slate-200 font-bold">专家提示：</span> 
+                  记录“成交金额”能提供最精准的盈亏追踪。如果留空，系统将回溯 T 日净值自动计算估算成本。
                 </div>
               </div>
 
