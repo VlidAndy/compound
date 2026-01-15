@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { TrendingDown, TrendingUp, AlertTriangle, CheckCircle2, Coins, ArrowRight, Wallet, Info, Zap, ChevronRight, Activity, ShoppingCart, Timer, Edit3, Save, Clock, RefreshCw, Calendar } from 'lucide-react';
+import { TrendingDown, TrendingUp, AlertTriangle, CheckCircle2, Coins, ArrowRight, Wallet, Info, Zap, ChevronRight, Activity, ShoppingCart, Timer, Edit3, Save, Clock, RefreshCw, Calendar, Globe, ExternalLink, ShieldCheck, Landmark } from 'lucide-react';
 import { Transaction, Holding, FundCategory, NAVPoint } from '../types';
 import { fetchRealtimeValuation, findMondayBaseline, getCategoryName } from '../utils/fundApi';
 import { formatCurrency } from '../utils/calculator';
@@ -11,11 +11,58 @@ interface StrategyDecision {
   category: FundCategory;
   suggestedAmount: number;
   actualUnits: number;
-  date: string; // 确认日期 (T+1)
+  date: string; 
   timingGap: number; 
   mondayNAV: number;
   currentNAV: number;
 }
+
+const NEWS_SOURCES = [
+  {
+    category: 'stock',
+    label: '权益市场',
+    icon: TrendingUp,
+    color: 'text-rose-400',
+    links: [
+      { name: '华尔街见闻-股市', url: 'https://wallstreetcn.com/news/shares' },
+      { name: '东方财富网', url: 'https://www.eastmoney.com/' }
+    ],
+    desc: '关注经济增长预期与企业盈利能力。'
+  },
+  {
+    category: 'bond',
+    label: '债券利率',
+    icon: Landmark,
+    color: 'text-brand-400',
+    links: [
+      { name: '中债收益率曲线', url: 'https://www.chinabond.com.cn/' },
+      { name: '英为财情-十年期美债', url: 'https://cn.investing.com/rates-bonds/u.s.-10-year-bond-yield' }
+    ],
+    desc: '通缩期与降息周期的核心锚点。'
+  },
+  {
+    category: 'gold',
+    label: '避险资产',
+    icon: ShieldCheck,
+    color: 'text-amber-400',
+    links: [
+      { name: 'KITCO 全球金价', url: 'https://www.kitco.com/charts/livegold.html' },
+      { name: '金十数据-避险情报', url: 'https://www.jin10.com/' }
+    ],
+    desc: '通胀压力、货币信用危机与地缘政治监测。'
+  },
+  {
+    category: 'cash',
+    label: '宏观流动性',
+    icon: Wallet,
+    color: 'text-emerald-400',
+    links: [
+      { name: '财联社-宏观', url: 'https://www.cls.cn/subject/1000' },
+      { name: '央行公开市场操作', url: 'http://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html' }
+    ],
+    desc: '关注市场现金流紧缺度与基准利率。'
+  }
+];
 
 export const StrategyEngine: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
@@ -120,7 +167,6 @@ export const StrategyEngine: React.FC = () => {
     let remainingBudget: number = budget;
     const initialDecisions: StrategyDecision[] = [];
     
-    // 默认确认日期设为明天 (T+1)
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const defaultDate = tomorrow.toISOString().split('T')[0];
@@ -197,14 +243,13 @@ export const StrategyEngine: React.FC = () => {
       type: 'buy',
       category: d.category,
       units: d.actualUnits,
-      // 核心调整：不保存 amount，由 date 触发 Holdings.tsx 的净值追溯
       date: d.date,
     }));
 
     const updated = [...transactions, ...newTxs];
     setTransactions(updated);
     localStorage.setItem('fund_transactions', JSON.stringify(updated));
-    alert(`入库成功！已生成 ${newTxs.length} 笔待确认记录。\n系统将根据“确认日期”回溯成本价。`);
+    alert(`入库成功！已生成 ${newTxs.length} 笔待确认记录。`);
   };
 
   return (
@@ -227,7 +272,7 @@ export const StrategyEngine: React.FC = () => {
               </span>
             </h2>
             <p className="text-slate-400 text-sm max-w-xl leading-relaxed">
-              算法已自动计算各项资产距离“均衡占比 25%”的资金缺口。录入时请核对“确认份额”与“确认日期”，系统将自动匹配成交成本。
+              根据永久投资组合 (Permanent Portfolio) 理论，算法已自动平衡资产缺口。录入前建议核对下方宏观指标。
             </p>
           </div>
           
@@ -289,10 +334,11 @@ export const StrategyEngine: React.FC = () => {
               })}
             </div>
           </div>
+          
           <div className="bg-slate-900/40 p-6 rounded-[1.5rem] border border-slate-800/50 flex gap-4">
             <Info size={18} className="text-slate-600 shrink-0" />
             <p className="text-[11px] text-slate-500 leading-relaxed italic">
-              由于定投通常涉及手续费且成交价为当日收盘净值，本页面仅需录入银行确认的“份额”与“确认日期”。系统将自动匹配 T 日净值，实现无感精算。
+              择时提示：若股票和黄金同时出现 >1.5% 的跌幅，则进入高价值定投窗口。
             </p>
           </div>
         </div>
@@ -315,16 +361,12 @@ export const StrategyEngine: React.FC = () => {
                    <div key={d.code} className="bg-slate-800/40 border border-white/5 p-6 rounded-3xl hover:border-white/10 transition-all">
                      <div className="flex flex-col md:flex-row gap-6 md:items-center justify-between">
                         <div className="flex items-center gap-4 min-w-[200px]">
-                           <div className="w-1.5 h-12 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.1)]" style={{ backgroundColor: CATEGORY_COLORS[d.category] }}></div>
+                           <div className="w-1.5 h-12 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[d.category] }}></div>
                            <div>
                              <div className="flex items-center gap-2">
                                <div className="text-lg font-black text-white">{d.name}</div>
                                {holdingsByCategory[d.category].length > 1 && (
-                                 <button 
-                                   onClick={() => handleSwapFund(d.category)}
-                                   className="p-1.5 rounded-lg bg-slate-900/50 text-slate-500 hover:text-brand-400 hover:bg-slate-900 transition-all"
-                                   title="切换同类资产"
-                                 >
+                                 <button onClick={() => handleSwapFund(d.category)} className="p-1.5 rounded-lg bg-slate-900/50 text-slate-500 hover:text-brand-400 hover:bg-slate-900 transition-all">
                                    <RefreshCw size={12} />
                                  </button>
                                )}
@@ -338,55 +380,92 @@ export const StrategyEngine: React.FC = () => {
 
                         <div className="flex flex-1 flex-wrap md:flex-nowrap gap-4 justify-end">
                            <div className="space-y-1.5">
-                              <label className="text-[9px] uppercase font-black text-slate-600 block tracking-widest">确认份额 (份)</label>
-                              <div className="relative">
-                                <input 
-                                  type="number" 
-                                  step="0.01"
-                                  value={d.actualUnits} 
-                                  onChange={e => updateDecisionField(idx, 'actualUnits', parseFloat(e.target.value))}
-                                  className="w-full sm:w-32 bg-slate-900 border border-white/5 rounded-xl px-4 py-2.5 text-sm font-mono text-white focus:border-brand-500 outline-none"
-                                />
-                              </div>
+                              <label className="text-[9px] uppercase font-black text-slate-600 block tracking-widest">确认份额</label>
+                              <input type="number" step="0.01" value={d.actualUnits} onChange={e => updateDecisionField(idx, 'actualUnits', parseFloat(e.target.value))} className="w-full sm:w-32 bg-slate-900 border border-white/5 rounded-xl px-4 py-2.5 text-sm font-mono text-white outline-none" />
                            </div>
                            <div className="space-y-1.5">
-                              <label className="text-[9px] uppercase font-black text-slate-600 block tracking-widest">确认日期 (T+1)</label>
-                              <div className="relative">
-                                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600">
-                                  <Calendar size={12} />
-                                </div>
-                                <input 
-                                  type="date" 
-                                  value={d.date} 
-                                  onChange={e => updateDecisionField(idx, 'date', e.target.value)}
-                                  className="w-full sm:w-44 bg-slate-900 border border-white/5 rounded-xl pl-9 pr-4 py-2.5 text-xs font-mono text-brand-400 focus:border-brand-500 outline-none"
-                                />
-                              </div>
+                              <label className="text-[9px] uppercase font-black text-slate-600 block tracking-widest">确认日期</label>
+                              <input type="date" value={d.date} onChange={e => updateDecisionField(idx, 'date', e.target.value)} className="w-full sm:w-44 bg-slate-900 border border-white/5 rounded-xl px-4 py-2.5 text-xs font-mono text-brand-400 outline-none" />
                            </div>
                         </div>
                      </div>
                    </div>
                  ))}
                  
-                 <div className="pt-8 border-t border-white/5">
-                    <button 
-                      onClick={handleConfirmDCA}
-                      className="w-full bg-brand-600 hover:bg-brand-500 text-white py-6 rounded-3xl font-black text-lg flex items-center justify-center gap-4 shadow-2xl transition-all active:scale-[0.98]"
-                    >
+                 <div className="pt-8">
+                    <button onClick={handleConfirmDCA} className="w-full bg-brand-600 hover:bg-brand-500 text-white py-6 rounded-3xl font-black text-lg flex items-center justify-center gap-4 shadow-2xl transition-all">
                       <Save size={24} /> 确认记录入库
                     </button>
-                    <p className="text-center text-slate-500 text-[10px] mt-4 uppercase tracking-[0.2em] font-bold">Data will be persisted to Holdings & Market Analysis</p>
                  </div>
                </div>
              ) : (
-               <div className="h-64 flex flex-col items-center justify-center text-slate-700 italic space-y-4">
-                 <div className="p-6 rounded-full bg-slate-800/20 border border-slate-800">
-                   <Coins size={48} className="opacity-20" />
-                 </div>
-                 <p className="text-sm font-bold uppercase tracking-widest opacity-30">No Active Portfolio Found</p>
-               </div>
+               <div className="h-48 flex flex-col items-center justify-center opacity-30 italic"><p>No Decision Required</p></div>
              )}
            </div>
+        </div>
+      </div>
+
+      {/* 宏观情报看板 (Macro Insight Hub) */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-[2.5rem] p-8 backdrop-blur-xl shadow-2xl">
+        <div className="flex items-center gap-4 mb-8">
+          <div className="p-3 bg-brand-500/20 rounded-2xl text-brand-400">
+            <Globe size={24} />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-white tracking-tight">全球宏观情报看板</h3>
+            <p className="text-xs text-slate-500 font-medium uppercase tracking-widest mt-0.5">Macroeconomic Pulse & Links</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {NEWS_SOURCES.map((source) => (
+            <div key={source.category} className="bg-slate-950/50 border border-slate-800 p-6 rounded-3xl hover:border-slate-700 transition-all group">
+              <div className="flex items-center justify-between mb-4">
+                <div className={`p-2 rounded-xl bg-slate-900/50 ${source.color}`}>
+                  <source.icon size={20} />
+                </div>
+                <div className="text-[10px] font-black text-slate-600 uppercase tracking-tighter">Monitoring</div>
+              </div>
+              
+              <h4 className="text-sm font-bold text-white mb-2">{source.label}</h4>
+              <p className="text-[11px] text-slate-500 leading-relaxed mb-6 h-8 overflow-hidden">
+                {source.desc}
+              </p>
+              
+              <div className="space-y-2">
+                {source.links.map((link) => (
+                  <a 
+                    key={link.name} 
+                    href={link.url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-900/50 border border-white/5 hover:bg-brand-500/10 hover:border-brand-500/30 text-[11px] font-bold text-slate-300 hover:text-brand-400 transition-all group/link"
+                  >
+                    {link.name}
+                    <ExternalLink size={12} className="opacity-0 group-hover/link:opacity-100 transition-all" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-8 p-6 bg-brand-500/5 rounded-3xl border border-brand-500/20 flex flex-col md:flex-row items-center justify-between gap-4">
+           <div className="flex items-center gap-4">
+             <div className="p-2 bg-brand-500/20 rounded-full animate-pulse">
+               <Info size={16} className="text-brand-400" />
+             </div>
+             <p className="text-xs text-slate-400 font-medium">
+               <span className="text-brand-400 font-bold">永久组合提示：</span> 
+               当债券收益率大幅上升（债价下跌）且股市低迷时，通常是由于通胀超预期。此时黄金的表现将成为组合的最后防线。
+             </p>
+           </div>
+           <button 
+             onClick={() => window.open('https://wallstreetcn.com/live/global', '_blank')}
+             className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl"
+           >
+             查看全球 24H 快讯
+           </button>
         </div>
       </div>
     </div>
