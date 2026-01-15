@@ -183,7 +183,6 @@ export const StrategyEngine: React.FC = () => {
     alert(`入库成功！\n请在“我的持仓”中点击“全量同步”以更新成交成本。`);
   };
 
-  // Fix: Define globalSignal based on timingGap in editableDecisions
   const globalSignal = useMemo(() => {
     if (editableDecisions.length === 0) return 'normal';
     const minGap = Math.min(...editableDecisions.map(d => d.timingGap));
@@ -273,7 +272,7 @@ export const StrategyEngine: React.FC = () => {
                        <div>
                          <div className="text-lg font-black text-white flex items-center gap-2">
                            {d.name}
-                           {holdingsByCategory[d.category].length > 1 && <button onClick={() => handleSwapFund(d.category)} className="p-1 hover:text-brand-400"><RefreshCcw size={12}/></button>}
+                           {holdingsByCategory[d.category].length > 1 && <button onClick={() => handleSwapFund(d.category)} className="p-1 hover:text-brand-400"><RefreshCw size={12}/></button>}
                          </div>
                          <div className="text-[10px] font-mono text-slate-500">{d.code} · Gap: {(d.timingGap * 100).toFixed(2)}%</div>
                        </div>
