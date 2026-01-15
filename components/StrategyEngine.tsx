@@ -338,7 +338,7 @@ export const StrategyEngine: React.FC = () => {
           <div className="bg-slate-900/40 p-6 rounded-[1.5rem] border border-slate-800/50 flex gap-4">
             <Info size={18} className="text-slate-600 shrink-0" />
             <p className="text-[11px] text-slate-500 leading-relaxed italic">
-              择时提示：若股票和黄金同时出现 >1.5% 的跌幅，则进入高价值定投窗口。
+              择时提示：若股票和黄金同时出现 &gt;1.5% 的跌幅，则进入高价值定投窗口。
             </p>
           </div>
         </div>
