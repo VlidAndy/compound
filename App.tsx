@@ -6,7 +6,32 @@ import { Holdings } from './components/Holdings';
 import { StrategyEngine } from './components/StrategyEngine';
 import { calculateCompoundInterest } from './utils/calculator';
 import { InputState, AppTool } from './types';
-import { Calculator, ChevronDown, TrendingUp, PieChart as PieIcon, LayoutDashboard, Briefcase, Zap, Download, Upload, FileJson } from 'lucide-react';
+import { 
+  Calculator, 
+  ChevronDown, 
+  TrendingUp, 
+  PieChart as PieIcon, 
+  LayoutDashboard, 
+  Briefcase, 
+  Zap, 
+  Download, 
+  Upload, 
+  CloudUpload, 
+  CloudDownload, 
+  RefreshCw,
+  Loader2,
+  Trash2,
+  X,
+  Search,
+  Calendar,
+  Database,
+  CheckCircle2,
+  AlertCircle,
+  Plus
+} from 'lucide-react';
+
+const CLOUD_API_BASE = 'https://fancy-resonance-a403.664014238qq.workers.dev';
+const CLOUD_TOKEN = 'aptx4869';
 
 const App: React.FC = () => {
   const [activeTool, setActiveTool] = useState<AppTool>(() => {
@@ -15,6 +40,11 @@ const App: React.FC = () => {
   });
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isCloudLoading, setIsCloudLoading] = useState(false);
+  const [showBackupList, setShowBackupList] = useState(false);
+  const [backups, setBackups] = useState<string[]>([]);
+  const [selectedBackupDate, setSelectedBackupDate] = useState<string | null>(null);
+  const [monthFilter, setMonthFilter] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [inputs, setInputs] = useState<InputState>(() => {
@@ -44,6 +74,7 @@ const App: React.FC = () => {
     );
   }, [inputs]);
 
+  // Fix: Typo 'key0f' changed to 'keyof'
   const handleInputChange = (key: keyof InputState, value: number) => {
     setInputs(prev => ({ ...prev, [key]: value }));
   };
@@ -57,11 +88,9 @@ const App: React.FC = () => {
     });
   };
 
-  // 数据导出逻辑
-  const handleExportData = () => {
+  const getAppBackupData = () => {
     const keys = ['fund_transactions', 'fund_nav_cache', 'asset_items', 'fund_app_inputs', 'active_tool'];
     const backup: Record<string, any> = {};
-    
     keys.forEach(key => {
       const val = localStorage.getItem(key);
       if (val) {
@@ -72,46 +101,127 @@ const App: React.FC = () => {
         }
       }
     });
-
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const date = new Date().toISOString().split('T')[0];
-    
-    link.href = url;
-    link.download = `${date}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    return backup;
   };
 
-  // 数据导入逻辑
-  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const applyImportedData = (data: any, successMsg: string = '数据恢复成功！应用即将刷新。') => {
+    if (!data || typeof data !== 'object') {
+      alert('数据恢复失败：无效的数据内容格式。');
+      return;
+    }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target?.result as string);
-        if (typeof data !== 'object') throw new Error('Invalid format');
+    try {
+      Object.entries(data).forEach(([key, value]) => {
+        const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
+        localStorage.setItem(key, stringValue);
+      });
+      alert(successMsg);
+      window.location.reload();
+    } catch (err) {
+      alert('写入本地存储时发生错误，恢复可能不完整。');
+    }
+  };
 
-        // 覆盖保存到 localStorage
-        Object.entries(data).forEach(([key, value]) => {
-          const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
-          localStorage.setItem(key, stringValue);
-        });
-
-        alert('数据恢复成功！应用即将刷新。');
-        window.location.reload();
-      } catch (err) {
-        alert('导入失败：文件格式不正确。');
-        console.error(err);
+  const fetchBackupList = async () => {
+    setIsCloudLoading(true);
+    try {
+      const response = await fetch(`${CLOUD_API_BASE}/backup/list`, {
+        headers: { 'Authorization': `Bearer ${CLOUD_TOKEN}` }
+      });
+      const result = await response.json();
+      if (result.success) {
+        setBackups(result.backups || []);
+      } else {
+        alert('无法获取备份列表：' + (result.error || '未知错误'));
       }
-    };
-    reader.readAsText(file);
+    } catch (error) {
+      alert('网络连接失败，无法加载云端备份列表。');
+    } finally {
+      setIsCloudLoading(false);
+    }
   };
+
+  const handleCloudBackup = async () => {
+    setIsCloudLoading(true);
+    try {
+      const backupData = getAppBackupData();
+      const response = await fetch(`${CLOUD_API_BASE}/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${CLOUD_TOKEN}`
+        },
+        body: JSON.stringify(backupData)
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        alert(`云端备份成功！日期: ${result.date}`);
+        if (showBackupList) fetchBackupList(); // 如果列表开着，刷新它
+      } else {
+        alert('备份失败: ' + (result.error || '服务器拒绝'));
+      }
+    } catch (error) {
+      alert('网络异常，备份上传失败。');
+    } finally {
+      setIsCloudLoading(false);
+    }
+  };
+
+  const handleRestoreBackup = async (date: string) => {
+    if (!date) return;
+    if (!confirm(`确定要从云端同步 ${date} 的备份吗？\n注意：这将彻底覆盖您当前所有的本地数据且不可撤销！`)) return;
+    
+    setIsCloudLoading(true);
+    try {
+      const response = await fetch(`${CLOUD_API_BASE}/backup?date=${date}`, {
+        headers: { 'Authorization': `Bearer ${CLOUD_TOKEN}` }
+      });
+      const result = await response.json();
+      if (result.success && result.data) {
+        let actualData = result.data;
+        // 兼容处理 Worker 可能返回的 JSON 字符串
+        if (typeof actualData === 'string') {
+          try { actualData = JSON.parse(actualData); } catch {}
+        }
+        applyImportedData(actualData, `云同步成功！正在加载 ${date} 的全量快照...`);
+      } else {
+        alert('云端数据获取失败：' + (result.error || '备份文件损坏或不存在'));
+      }
+    } catch (error) {
+      console.error('Restore error:', error);
+      alert('同步请求失败，请检查网络连接。');
+    } finally {
+      setIsCloudLoading(false);
+    }
+  };
+
+  const handleDeleteBackup = async (date: string) => {
+    if (!confirm(`警告：确定要永久删除 ${date} 的云端备份吗？`)) return;
+    setIsCloudLoading(true);
+    try {
+      const response = await fetch(`${CLOUD_API_BASE}/backup?date=${date}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${CLOUD_TOKEN}` }
+      });
+      const result = await response.json();
+      if (result.success) {
+        setBackups(prev => prev.filter(d => d !== date));
+        if (selectedBackupDate === date) setSelectedBackupDate(null);
+      } else {
+        alert('删除失败：' + (result.error || '服务器拒绝'));
+      }
+    } catch (error) {
+      alert('网络连接失败，请稍后重试。');
+    } finally {
+      setIsCloudLoading(false);
+    }
+  };
+
+  const filteredBackups = useMemo(() => {
+    if (!monthFilter) return backups;
+    return backups.filter(date => date.startsWith(monthFilter));
+  }, [backups, monthFilter]);
 
   const toolLabels: Record<AppTool, string> = {
     calculator: '复利精算引擎',
@@ -144,10 +254,7 @@ const App: React.FC = () => {
             </div>
             
             <div className="relative">
-              <button 
-                onClick={() => setIsMenuOpen(!isMenuOpen)}
-                className="flex items-center gap-2 group"
-              >
+              <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="flex items-center gap-2 group">
                 <div className="text-left">
                   <h1 className="text-xl md:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
                     资产管家 <span className="text-brand-400">Pro</span>
@@ -188,33 +295,55 @@ const App: React.FC = () => {
           </div>
 
           <div className="hidden md:flex items-center gap-4">
-            {/* 备份与恢复按钮组 */}
-            <div className="flex items-center bg-slate-900/50 rounded-full border border-slate-700 p-1">
+            <div className="flex items-center bg-slate-900/50 rounded-full border border-slate-700 p-1 shadow-lg shadow-black/20">
               <button 
-                onClick={handleExportData}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all uppercase tracking-tighter"
+                onClick={handleCloudBackup}
+                disabled={isCloudLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all uppercase tracking-tighter disabled:opacity-50"
               >
-                <Download size={12} className="text-brand-400" /> 备份
+                {isCloudLoading ? <RefreshCw size={12} className="animate-spin text-brand-400" /> : <CloudUpload size={12} className="text-brand-400" />} 
+                云备份
               </button>
               <div className="w-[1px] h-3 bg-slate-700 mx-0.5"></div>
               <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all uppercase tracking-tighter"
+                onClick={() => { setShowBackupList(true); fetchBackupList(); }}
+                disabled={isCloudLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all uppercase tracking-tighter disabled:opacity-50"
               >
-                <Upload size={12} className="text-emerald-400" /> 恢复
+                {isCloudLoading ? <Loader2 size={12} className="animate-spin text-emerald-400" /> : <Database size={12} className="text-emerald-400" />} 
+                备份管理
               </button>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleImportData} 
-                accept=".json" 
-                className="hidden" 
-              />
             </div>
 
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900/50 rounded-full border border-slate-700">
-               <LayoutDashboard size={14} className="text-slate-500" />
-               <span className="text-[10px] font-mono text-slate-400 uppercase tracking-tighter">Laboratory v1.8</span>
+            <div className="flex items-center bg-slate-900/50 rounded-full border border-slate-700 p-1 shadow-lg shadow-black/20">
+              <button onClick={() => {
+                const backup = getAppBackupData();
+                const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `local_backup_${new Date().toISOString().split('T')[0]}.json`;
+                link.click();
+              }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all uppercase tracking-tighter">
+                <Download size={12} className="text-slate-500" /> 导出
+              </button>
+              <div className="w-[1px] h-3 bg-slate-700 mx-0.5"></div>
+              <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all uppercase tracking-tighter">
+                <Upload size={12} className="text-slate-500" /> 导入
+              </button>
+              <input type="file" ref={fileInputRef} onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                   try {
+                     applyImportedData(JSON.parse(event.target?.result as string));
+                   } catch(e) {
+                     alert('解析本地文件失败，请确认文件格式为 JSON');
+                   }
+                };
+                reader.readAsText(file);
+              }} accept=".json" className="hidden" />
             </div>
           </div>
         </header>
@@ -241,6 +370,127 @@ const App: React.FC = () => {
           </p>
         </footer>
       </div>
+
+      {/* 云端备份管理模态框 */}
+      {showBackupList && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setShowBackupList(false)}></div>
+          <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[85vh]">
+            <div className="p-8 border-b border-slate-800 flex justify-between items-center bg-slate-850/50">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-emerald-600/20 rounded-2xl">
+                  <Database size={24} className="text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white tracking-tight">云端备份库</h3>
+                  <p className="text-xs text-slate-500 font-medium uppercase tracking-widest mt-0.5">Cloud Storage Archives</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={handleCloudBackup}
+                  disabled={isCloudLoading}
+                  className="p-2.5 bg-brand-600/10 hover:bg-brand-600/20 text-brand-400 rounded-xl transition-all"
+                  title="立即创建全量备份"
+                >
+                  {isCloudLoading ? <Loader2 size={20} className="animate-spin" /> : <CloudUpload size={20} />}
+                </button>
+                <button 
+                  onClick={fetchBackupList}
+                  disabled={isCloudLoading}
+                  className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-all"
+                  title="刷新列表"
+                >
+                  <RefreshCw size={20} className={isCloudLoading ? 'animate-spin' : ''} />
+                </button>
+                <button onClick={() => setShowBackupList(false)} className="p-2.5 hover:bg-slate-800 rounded-xl transition-colors text-slate-400">
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 bg-slate-900/50 border-b border-slate-800 flex gap-4">
+              <div className="relative flex-1 group">
+                <Calendar size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-brand-400 transition-colors" />
+                <input 
+                  type="month" 
+                  value={monthFilter}
+                  onChange={e => setMonthFilter(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-12 pr-4 py-3 text-sm text-white outline-none focus:border-brand-500 transition-all"
+                />
+              </div>
+              <button 
+                onClick={() => setMonthFilter('')}
+                className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-2xl text-xs font-bold transition-all"
+              >
+                全部
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto custom-scrollbar p-6 space-y-3">
+              {isCloudLoading && backups.length === 0 ? (
+                <div className="py-20 flex flex-col items-center justify-center space-y-4">
+                  <Loader2 size={40} className="animate-spin text-brand-500/50" />
+                  <p className="text-xs font-bold text-slate-600 uppercase tracking-widest">Loading Archives...</p>
+                </div>
+              ) : filteredBackups.length > 0 ? (
+                filteredBackups.map((date) => (
+                  <div 
+                    key={date}
+                    onClick={() => setSelectedBackupDate(date)}
+                    className={`group flex items-center justify-between p-5 rounded-3xl border-2 transition-all cursor-pointer ${
+                      selectedBackupDate === date 
+                        ? 'bg-brand-500/10 border-brand-500 shadow-[0_0_20px_rgba(14,165,233,0.1)]' 
+                        : 'bg-slate-900/40 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                        selectedBackupDate === date ? 'border-brand-500 bg-brand-500' : 'border-slate-700'
+                      }`}>
+                        {selectedBackupDate === date && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className={`text-sm font-bold tracking-tight ${selectedBackupDate === date ? 'text-brand-400' : 'text-slate-200'}`}>
+                          {date}
+                        </span>
+                        <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono mt-0.5">Full Data Snapshot</span>
+                      </div>
+                    </div>
+                    
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleDeleteBackup(date); }}
+                      className="p-3 text-slate-600 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                      title="删除该备份"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="py-20 flex flex-col items-center justify-center text-slate-700 space-y-4">
+                  <Database size={48} className="opacity-20" />
+                  <p className="text-sm font-bold uppercase tracking-widest opacity-40 text-center">
+                    当前月份暂无备份<br/>
+                    <span className="text-[10px] lowercase font-normal">点击右上方按钮开始首个云端同步</span>
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-8 border-t border-slate-800 bg-slate-850/50">
+              <button 
+                disabled={!selectedBackupDate || isCloudLoading}
+                onClick={() => selectedBackupDate && handleRestoreBackup(selectedBackupDate)}
+                className="w-full bg-brand-600 hover:bg-brand-500 disabled:opacity-30 disabled:grayscale text-white py-4 rounded-3xl font-black text-sm flex items-center justify-center gap-3 shadow-xl transition-all active:scale-[0.98]"
+              >
+                {isCloudLoading ? <Loader2 size={18} className="animate-spin" /> : <CloudDownload size={18} />}
+                同步并应用所选备份
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
