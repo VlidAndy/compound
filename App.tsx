@@ -1,9 +1,11 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { ConfigPanel } from './components/ConfigPanel';
 import { Visualizer } from './components/Visualizer';
 import { AssetAllocation } from './components/AssetAllocation';
 import { Holdings } from './components/Holdings';
 import { StrategyEngine } from './components/StrategyEngine';
+import { Toast, ConfirmDialog, NotificationType } from './components/Notification';
 import { calculateCompoundInterest } from './utils/calculator';
 import { InputState, AppTool } from './types';
 import { 
@@ -11,7 +13,6 @@ import {
   ChevronDown, 
   TrendingUp, 
   PieChart as PieIcon, 
-  LayoutDashboard, 
   Briefcase, 
   Zap, 
   Download, 
@@ -22,12 +23,8 @@ import {
   Loader2,
   Trash2,
   X,
-  Search,
   Calendar,
-  Database,
-  CheckCircle2,
-  AlertCircle,
-  Plus
+  Database
 } from 'lucide-react';
 
 const CLOUD_API_BASE = 'https://fancy-resonance-a403.664014238qq.workers.dev';
@@ -45,7 +42,14 @@ const App: React.FC = () => {
   const [backups, setBackups] = useState<string[]>([]);
   const [selectedBackupDate, setSelectedBackupDate] = useState<string | null>(null);
   const [monthFilter, setMonthFilter] = useState<string>('');
+  
+  // Notification States
+  const [toast, setToast] = useState<{ msg: string; type: NotificationType } | null>(null);
+  const [confirm, setConfirm] = useState<{ title: string; msg: string; onConfirm: () => void } | null>(null);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const showToast = (msg: string, type: NotificationType = 'success') => setToast({ msg, type });
 
   const [inputs, setInputs] = useState<InputState>(() => {
     const saved = localStorage.getItem('fund_app_inputs');
@@ -74,7 +78,6 @@ const App: React.FC = () => {
     );
   }, [inputs]);
 
-  // Fix: Typo 'key0f' changed to 'keyof'
   const handleInputChange = (key: keyof InputState, value: number) => {
     setInputs(prev => ({ ...prev, [key]: value }));
   };
@@ -104,9 +107,9 @@ const App: React.FC = () => {
     return backup;
   };
 
-  const applyImportedData = (data: any, successMsg: string = '数据恢复成功！应用即将刷新。') => {
+  const applyImportedData = (data: any, successMsg: string = '数据恢复成功！正在刷新。') => {
     if (!data || typeof data !== 'object') {
-      alert('数据恢复失败：无效的数据内容格式。');
+      showToast('无效的数据格式', 'error');
       return;
     }
 
@@ -115,10 +118,10 @@ const App: React.FC = () => {
         const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
         localStorage.setItem(key, stringValue);
       });
-      alert(successMsg);
-      window.location.reload();
+      showToast(successMsg, 'success');
+      setTimeout(() => window.location.reload(), 1000);
     } catch (err) {
-      alert('写入本地存储时发生错误，恢复可能不完整。');
+      showToast('存储写入失败', 'error');
     }
   };
 
@@ -132,16 +135,17 @@ const App: React.FC = () => {
       if (result.success) {
         setBackups(result.backups || []);
       } else {
-        alert('无法获取备份列表：' + (result.error || '未知错误'));
+        showToast(result.error || '获取列表失败', 'error');
       }
     } catch (error) {
-      alert('网络连接失败，无法加载云端备份列表。');
+      showToast('网络连接失败', 'error');
     } finally {
       setIsCloudLoading(false);
     }
   };
 
-  const handleCloudBackup = async () => {
+  // 核心变更：带冲突检测的备份逻辑
+  const performCloudBackup = async () => {
     setIsCloudLoading(true);
     try {
       const backupData = getAppBackupData();
@@ -156,66 +160,94 @@ const App: React.FC = () => {
 
       const result = await response.json();
       if (result.success) {
-        alert(`云端备份成功！日期: ${result.date}`);
-        if (showBackupList) fetchBackupList(); // 如果列表开着，刷新它
+        showToast(`备份成功！${result.date}`);
+        fetchBackupList();
       } else {
-        alert('备份失败: ' + (result.error || '服务器拒绝'));
+        showToast('备份失败: ' + result.error, 'error');
       }
     } catch (error) {
-      alert('网络异常，备份上传失败。');
+      showToast('上传失败', 'error');
     } finally {
       setIsCloudLoading(false);
+    }
+  };
+
+  const handleCloudBackupRequest = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const hasToday = backups.some(d => d.startsWith(today));
+
+    if (hasToday) {
+      setConfirm({
+        title: '覆盖备份确认',
+        msg: `今日 (${today}) 已存在云端备份，继续操作将覆盖现有存档。确认继续吗？`,
+        onConfirm: () => {
+          setConfirm(null);
+          performCloudBackup();
+        }
+      });
+    } else {
+      performCloudBackup();
     }
   };
 
   const handleRestoreBackup = async (date: string) => {
     if (!date) return;
-    if (!confirm(`确定要从云端同步 ${date} 的备份吗？\n注意：这将彻底覆盖您当前所有的本地数据且不可撤销！`)) return;
-    
-    setIsCloudLoading(true);
-    try {
-      const response = await fetch(`${CLOUD_API_BASE}/backup?date=${date}`, {
-        headers: { 'Authorization': `Bearer ${CLOUD_TOKEN}` }
-      });
-      const result = await response.json();
-      if (result.success && result.data) {
-        let actualData = result.data;
-        // 兼容处理 Worker 可能返回的 JSON 字符串
-        if (typeof actualData === 'string') {
-          try { actualData = JSON.parse(actualData); } catch {}
+    setConfirm({
+      title: '同步确认',
+      msg: `确定要恢复 ${date} 的快照吗？当前本地未保存的数据将被覆盖！`,
+      onConfirm: async () => {
+        setConfirm(null);
+        setIsCloudLoading(true);
+        try {
+          const response = await fetch(`${CLOUD_API_BASE}/backup?date=${date}`, {
+            headers: { 'Authorization': `Bearer ${CLOUD_TOKEN}` }
+          });
+          const result = await response.json();
+          if (result.success && result.data) {
+            let actualData = result.data;
+            if (typeof actualData === 'string') {
+              try { actualData = JSON.parse(actualData); } catch {}
+            }
+            applyImportedData(actualData, `云同步成功！正在加载 ${date} 的全量快照...`);
+          } else {
+            showToast('数据获取失败', 'error');
+          }
+        } catch (error) {
+          showToast('同步请求失败', 'error');
+        } finally {
+          setIsCloudLoading(false);
         }
-        applyImportedData(actualData, `云同步成功！正在加载 ${date} 的全量快照...`);
-      } else {
-        alert('云端数据获取失败：' + (result.error || '备份文件损坏或不存在'));
       }
-    } catch (error) {
-      console.error('Restore error:', error);
-      alert('同步请求失败，请检查网络连接。');
-    } finally {
-      setIsCloudLoading(false);
-    }
+    });
   };
 
   const handleDeleteBackup = async (date: string) => {
-    if (!confirm(`警告：确定要永久删除 ${date} 的云端备份吗？`)) return;
-    setIsCloudLoading(true);
-    try {
-      const response = await fetch(`${CLOUD_API_BASE}/backup?date=${date}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${CLOUD_TOKEN}` }
-      });
-      const result = await response.json();
-      if (result.success) {
-        setBackups(prev => prev.filter(d => d !== date));
-        if (selectedBackupDate === date) setSelectedBackupDate(null);
-      } else {
-        alert('删除失败：' + (result.error || '服务器拒绝'));
+    setConfirm({
+      title: '永久删除确认',
+      msg: `确定要永久删除 ${date} 的云端备份吗？此操作无法撤销。`,
+      onConfirm: async () => {
+        setConfirm(null);
+        setIsCloudLoading(true);
+        try {
+          const response = await fetch(`${CLOUD_API_BASE}/backup?date=${date}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${CLOUD_TOKEN}` }
+          });
+          const result = await response.json();
+          if (result.success) {
+            setBackups(prev => prev.filter(d => d !== date));
+            if (selectedBackupDate === date) setSelectedBackupDate(null);
+            showToast('备份已安全移除');
+          } else {
+            showToast('删除失败', 'error');
+          }
+        } catch (error) {
+          showToast('网络连接失败', 'error');
+        } finally {
+          setIsCloudLoading(false);
+        }
       }
-    } catch (error) {
-      alert('网络连接失败，请稍后重试。');
-    } finally {
-      setIsCloudLoading(false);
-    }
+    });
   };
 
   const filteredBackups = useMemo(() => {
@@ -241,6 +273,17 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans selection:bg-brand-500/30 overflow-x-hidden">
+      {/* Notifications */}
+      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+      {confirm && (
+        <ConfirmDialog 
+          title={confirm.title} 
+          message={confirm.msg} 
+          onConfirm={confirm.onConfirm} 
+          onCancel={() => setConfirm(null)} 
+        />
+      )}
+
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-brand-900/10 rounded-full blur-[100px] -translate-x-1/2 -translate-y-1/2"></div>
         <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-emerald-900/10 rounded-full blur-[100px] translate-x-1/3 translate-y-1/3"></div>
@@ -297,21 +340,12 @@ const App: React.FC = () => {
           <div className="hidden md:flex items-center gap-4">
             <div className="flex items-center bg-slate-900/50 rounded-full border border-slate-700 p-1 shadow-lg shadow-black/20">
               <button 
-                onClick={handleCloudBackup}
-                disabled={isCloudLoading}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all uppercase tracking-tighter disabled:opacity-50"
-              >
-                {isCloudLoading ? <RefreshCw size={12} className="animate-spin text-brand-400" /> : <CloudUpload size={12} className="text-brand-400" />} 
-                云备份
-              </button>
-              <div className="w-[1px] h-3 bg-slate-700 mx-0.5"></div>
-              <button 
                 onClick={() => { setShowBackupList(true); fetchBackupList(); }}
                 disabled={isCloudLoading}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all uppercase tracking-tighter disabled:opacity-50"
+                className="flex items-center gap-2 px-5 py-2 rounded-full text-[10px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all uppercase tracking-widest disabled:opacity-50"
               >
-                {isCloudLoading ? <Loader2 size={12} className="animate-spin text-emerald-400" /> : <Database size={12} className="text-emerald-400" />} 
-                备份管理
+                {isCloudLoading ? <Loader2 size={14} className="animate-spin text-brand-400" /> : <Database size={14} className="text-brand-400" />} 
+                备份与云同步
               </button>
             </div>
 
@@ -339,7 +373,7 @@ const App: React.FC = () => {
                    try {
                      applyImportedData(JSON.parse(event.target?.result as string));
                    } catch(e) {
-                     alert('解析本地文件失败，请确认文件格式为 JSON');
+                     showToast('文件解析失败', 'error');
                    }
                 };
                 reader.readAsText(file);
@@ -388,7 +422,7 @@ const App: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <button 
-                  onClick={handleCloudBackup}
+                  onClick={handleCloudBackupRequest}
                   disabled={isCloudLoading}
                   className="p-2.5 bg-brand-600/10 hover:bg-brand-600/20 text-brand-400 rounded-xl transition-all"
                   title="立即创建全量备份"

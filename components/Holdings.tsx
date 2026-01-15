@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, LineChart, PieChart as PieIcon, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Coins, History, Loader2, X, Target, Info, Zap, Clock, MousePointer2, BarChart3, TrendingUp, RefreshCw } from 'lucide-react';
 import { Transaction, Holding, FundCategory, TransactionType, NAVPoint } from '../types';
@@ -19,6 +18,31 @@ interface EnhancedTransaction extends Transaction {
   tDayText?: string;        
   isPriceStale?: boolean;   
 }
+
+const CustomPieTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className="bg-slate-900/95 border border-white/20 p-4 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-3xl z-[1000] ring-1 ring-white/10 min-w-[160px] transform-gpu transition-all animate-in zoom-in-95">
+        <div className="flex items-center gap-2 mb-2 border-b border-white/10 pb-2">
+          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[data.key as FundCategory] }}></div>
+          <p className="text-sm font-black text-white">{data.name}</p>
+        </div>
+        <div className="space-y-1.5">
+          <div className="flex justify-between items-end">
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">当前估值</span>
+            <span className="text-sm font-mono font-black text-brand-400">{formatCurrency(data.value, 2)}</span>
+          </div>
+          <div className="flex justify-between items-end">
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">资产权重</span>
+            <span className="text-xs font-mono font-bold text-slate-200">{data.percentage}%</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
 
 export const Holdings: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
@@ -41,7 +65,7 @@ export const Holdings: React.FC = () => {
     type: 'buy',
     category: 'stock',
     units: 0,
-    amount: undefined, // 新增：手动录入时的实际成交金额
+    amount: undefined,
     date: new Date().toISOString().split('T')[0]
   });
 
@@ -118,7 +142,6 @@ export const Holdings: React.FC = () => {
       let isPriceStale = true;
       const confirmDateStr = t.date;
       
-      // 核心计算修正：优先使用交易记录中的 amount
       if (t.amount !== undefined && t.amount !== null && t.units > 0) {
         executedPrice = t.amount / t.units;
         isPriceStale = false;
@@ -145,7 +168,6 @@ export const Holdings: React.FC = () => {
           isPriceStale = true;
         }
       } else {
-        // 如果没有记录金额且没有历史数据，暂时使用 1.0 或 尝试寻找现成的 currentNAV
         executedPrice = h.currentNAV || 1.0;
       }
 
@@ -233,8 +255,9 @@ export const Holdings: React.FC = () => {
     const pieData = Object.entries(catValue).map(([name, value]) => ({
       name: getCategoryName(name),
       value,
-      key: name
-    })).filter(d => d.value > 0);
+      key: name,
+      percentage: totalMarketValue > 0 ? ((value / totalMarketValue) * 100).toFixed(2) : "0.00"
+    })).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
 
     return { totalMarketValue, totalCostValue, profit: totalMarketValue - totalCostValue, pieData };
   }, [processedHoldings]);
@@ -248,7 +271,7 @@ export const Holdings: React.FC = () => {
       type: form.type || 'buy',
       category: form.category!,
       units: Number(form.units),
-      amount: form.amount ? Number(form.amount) : undefined, // 保存手动录入的金额
+      amount: form.amount ? Number(form.amount) : undefined,
       date: form.date!
     };
     setTransactions([...transactions, newTx]);
@@ -300,9 +323,9 @@ export const Holdings: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-8 bg-slate-850 rounded-3xl border border-slate-700 overflow-hidden flex flex-col">
+        <div className="lg:col-span-8 bg-slate-850 rounded-3xl border border-slate-700 overflow-hidden flex flex-col shadow-xl">
           <div className="p-6 border-b border-slate-700 flex items-center justify-between">
-            <h3 className="font-bold text-lg flex items-center gap-2">
+            <h3 className="font-bold text-lg flex items-center gap-2 text-white">
               <Coins className="text-brand-400" size={20} /> 动态持仓精算视图
             </h3>
             <div className="flex items-center gap-4">
@@ -318,7 +341,6 @@ export const Holdings: React.FC = () => {
                 <RefreshCw size={14} className={isSyncingAll ? 'animate-spin' : ''} />
                 {isSyncingAll ? '同步中...' : '全量同步'}
               </button>
-              <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">基于单位净值(Net Worth)</span>
             </div>
           </div>
 
@@ -371,51 +393,92 @@ export const Holdings: React.FC = () => {
                     </tr>
                   );
                 })}
-                {processedHoldings.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-20 text-center text-slate-600 italic">
-                      暂无持仓资产，点击上方按钮录入第一笔记录
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
         </div>
 
-        <div className="lg:col-span-4 bg-slate-850 rounded-3xl border border-slate-700 p-6 flex flex-col items-center">
-          <h3 className="font-bold text-lg mb-6 self-start flex items-center gap-2">
-            <PieIcon className="text-brand-400" size={20} /> 市值分配比例
-          </h3>
-          {stats.pieData.length > 0 ? (
-            <div className="w-full h-64 relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={stats.pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={90}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {stats.pieData.map((entry) => (
-                      <Cell key={`cell-${entry.key}`} fill={CATEGORY_COLORS[entry.key as FundCategory]} stroke="none" />
-                    ))}
-                  </Pie>
-                  <ChartTooltip 
-                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '12px' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">分类占比</span>
-              </div>
+        {/* 市值分配比例面板 */}
+        <div className="lg:col-span-4 bg-slate-850/80 backdrop-blur-xl rounded-3xl border border-slate-700/50 p-6 flex flex-col shadow-2xl relative">
+          <div className="flex items-center gap-2 mb-6 shrink-0">
+            <div className="p-2 bg-brand-500/20 rounded-lg">
+              <PieIcon className="text-brand-400" size={20} />
             </div>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-slate-600 italic">暂无资产数据</div>
-          )}
+            <h3 className="font-bold text-lg text-white">市值分配比例</h3>
+          </div>
+          
+          <div className="flex-1 flex flex-col relative">
+            {stats.pieData.length > 0 ? (
+              <>
+                <div className="w-full h-56 relative shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={stats.pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={90}
+                        paddingAngle={4}
+                        dataKey="value"
+                        animationBegin={0}
+                        animationDuration={1000}
+                      >
+                        {stats.pieData.map((entry) => (
+                          <Cell 
+                            key={`cell-${entry.key}`} 
+                            fill={CATEGORY_COLORS[entry.key as FundCategory]} 
+                            stroke="#0f172a" 
+                            strokeWidth={2}
+                            className="hover:opacity-80 transition-opacity cursor-pointer outline-none"
+                          />
+                        ))}
+                      </Pie>
+                      {/* 核心修正：增加 wrapperStyle 与 allowEscapeViewBox */}
+                      <ChartTooltip 
+                        content={<CustomPieTooltip />} 
+                        wrapperStyle={{ zIndex: 1000, pointerEvents: 'none' }}
+                        allowEscapeViewBox={{ x: true, y: true }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  
+                  {/* 中央视觉核心装饰 */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none z-0">
+                    <div className="w-16 h-16 rounded-full border border-slate-700/30 flex items-center justify-center">
+                       <PieIcon size={14} className="text-brand-500/10" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 分类明细列表 */}
+                <div className="mt-4 space-y-2 overflow-auto custom-scrollbar flex-1 pr-1">
+                  {stats.pieData.map((item) => (
+                    <div key={item.key} className="flex items-center justify-between p-3 rounded-2xl bg-slate-900/40 border border-slate-700/30 group hover:border-brand-500/30 transition-all">
+                      <div className="flex items-center gap-3">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[item.key as FundCategory] }}></div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-200 uppercase tracking-wide">{item.name}</p>
+                          <p className="text-[10px] text-slate-500 font-mono mt-0.5">{item.percentage}% 份额</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-mono font-bold text-slate-300">{formatCurrency(item.value, 2)}</p>
+                        <p className="text-[9px] text-slate-600 uppercase tracking-tighter mt-0.5">EST. VALUE</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-600 italic gap-4 opacity-50">
+                <div className="w-20 h-20 rounded-full border-2 border-dashed border-slate-800 flex items-center justify-center">
+                  <PieIcon size={24} />
+                </div>
+                <p className="text-sm font-medium">暂无资产分布数据</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -499,14 +562,6 @@ export const Holdings: React.FC = () => {
               <div className="space-y-1.5">
                 <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">确认日期 (T+1)</label>
                 <input type="date" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 font-mono text-white" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
-              </div>
-
-              <div className="p-4 bg-brand-500/5 border border-brand-500/20 rounded-xl flex items-start gap-3">
-                <Zap size={18} className="text-brand-400 mt-0.5 shrink-0" />
-                <div className="text-[11px] text-slate-400 leading-relaxed">
-                  <span className="text-slate-200 font-bold">专家提示：</span> 
-                  记录“成交金额”能提供最精准的盈亏追踪。如果留空，系统将回溯 T 日净值自动计算估算成本。
-                </div>
               </div>
 
               <button onClick={handleAdd} className="w-full bg-brand-600 hover:bg-brand-500 py-4 rounded-2xl font-bold text-white shadow-lg shadow-brand-500/20 transition-all active:scale-[0.98] mt-4">
@@ -622,11 +677,6 @@ export const Holdings: React.FC = () => {
                     )}
                   </ResponsiveContainer>
                 </div>
-                <p className="text-[10px] text-slate-600 text-center mt-4 italic font-medium">
-                  {selectedHolding.category === 'cash' 
-                    ? "展示历史资金流入后的存量阶梯" 
-                    : "绿色锚点锁定 T日 单位净值。分红记录仅增加份额，不增加现金本金。"}
-                </p>
               </div>
             </div>
           </div>
