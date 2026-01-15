@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, LineChart, PieChart as PieIcon, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Coins, History, Loader2, X, Target, Info, Zap, Clock, MousePointer2, BarChart3, TrendingUp } from 'lucide-react';
+import { Plus, Trash2, LineChart, PieChart as PieIcon, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Coins, History, Loader2, X, Target, Info, Zap, Clock, MousePointer2, BarChart3, TrendingUp, RefreshCw } from 'lucide-react';
 import { Transaction, Holding, FundCategory, TransactionType, NAVPoint } from '../types';
 import { formatCurrency } from '../utils/calculator';
 import { fetchFundData, getCategoryName } from '../utils/fundApi';
@@ -27,6 +27,7 @@ export const Holdings: React.FC = () => {
   });
   
   const [loading, setLoading] = useState<Record<string, boolean>>({});
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [navData, setNavData] = useState<Record<string, NAVPoint[]>>(() => {
     const saved = localStorage.getItem('fund_nav_cache');
     return saved ? JSON.parse(saved) : {};
@@ -63,6 +64,19 @@ export const Holdings: React.FC = () => {
     const data = await fetchFundData(code);
     setNavData(prev => ({ ...prev, [code]: data }));
     setLoading(prev => ({ ...prev, [code]: false }));
+  };
+
+  const handleRefreshAll = async () => {
+    const codes = processedHoldings
+      .filter(h => h.category !== 'cash')
+      .map(h => h.code);
+    
+    if (codes.length === 0) return;
+
+    setIsSyncingAll(true);
+    // 并行请求所有基金数据
+    await Promise.all(codes.map(code => fetchData(code)));
+    setIsSyncingAll(false);
   };
 
   /**
@@ -228,7 +242,7 @@ export const Holdings: React.FC = () => {
       id: Date.now().toString(),
       code: form.code!,
       name: form.name!,
-      type: form.type!,
+      type: 'buy',
       category: form.category!,
       units: Number(form.units),
       date: form.date!
@@ -287,7 +301,21 @@ export const Holdings: React.FC = () => {
             <h3 className="font-bold text-lg flex items-center gap-2">
               <Coins className="text-brand-400" size={20} /> 动态持仓精算视图
             </h3>
-            <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">基于单位净值(Net Worth)</span>
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={handleRefreshAll}
+                disabled={isSyncingAll || processedHoldings.length === 0}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  isSyncingAll 
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                    : 'bg-brand-600/10 text-brand-400 hover:bg-brand-600/20'
+                }`}
+              >
+                <RefreshCw size={14} className={isSyncingAll ? 'animate-spin' : ''} />
+                {isSyncingAll ? '同步中...' : '全量同步'}
+              </button>
+              <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">基于单位净值(Net Worth)</span>
+            </div>
           </div>
 
           <div className="overflow-auto max-h-[600px] custom-scrollbar">
@@ -304,6 +332,7 @@ export const Holdings: React.FC = () => {
               <tbody className="divide-y divide-slate-800/50">
                 {processedHoldings.map(h => {
                   const profit = (h.currentNAV - h.avgCost) * h.totalUnits;
+                  const isItemLoading = loading[h.code];
                   return (
                     <tr 
                       key={h.code} 
@@ -313,8 +342,11 @@ export const Holdings: React.FC = () => {
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-3">
                           <div className="w-2 h-8 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.1)]" style={{ backgroundColor: CATEGORY_COLORS[h.category] }}></div>
-                          <div>
-                            <div className="text-sm font-bold text-white group-hover:text-brand-400 transition-colors">{h.name}</div>
+                          <div className="relative">
+                            <div className="text-sm font-bold text-white group-hover:text-brand-400 transition-colors flex items-center gap-2">
+                              {h.name}
+                              {isItemLoading && <Loader2 size={12} className="animate-spin text-brand-500" />}
+                            </div>
                             <div className="text-[10px] font-mono text-slate-500">{h.code}</div>
                           </div>
                         </div>
@@ -335,6 +367,13 @@ export const Holdings: React.FC = () => {
                     </tr>
                   );
                 })}
+                {processedHoldings.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-20 text-center text-slate-600 italic">
+                      暂无持仓资产，点击上方按钮录入第一笔记录
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
