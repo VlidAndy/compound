@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, LineChart, PieChart as PieIcon, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Coins, History, Loader2, X, Target, Info, Zap, Clock, MousePointer2, BarChart3, TrendingUp, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, LineChart, PieChart as PieIcon, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Coins, History, Loader2, X, Target, Info, Zap, Clock, MousePointer2, BarChart3, TrendingUp, RefreshCw, Eye, EyeOff, Archive, ArrowRightLeft, Sparkles, TrendingDown } from 'lucide-react';
 import { Transaction, Holding, FundCategory, TransactionType, NAVPoint } from '../types';
 import { formatCurrency } from '../utils/calculator';
-import { fetchFundData, getCategoryName } from '../utils/fundApi';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, LineChart as ReLineChart, Line, XAxis, YAxis, CartesianGrid, ReferenceDot, BarChart, Bar } from 'recharts';
+import { fetchFundData, getCategoryName, findMondayBaseline } from '../utils/fundApi';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, LineChart as ReLineChart, Line, XAxis, YAxis, CartesianGrid, ReferenceDot, BarChart, Bar, Cell as BarCell } from 'recharts';
 
 const CATEGORY_COLORS: Record<FundCategory, string> = {
   stock: '#ef4444',
@@ -52,6 +53,7 @@ export const Holdings: React.FC = () => {
   
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [isSyncingAll, setIsSyncingAll] = useState(false);
+  const [showClosed, setShowClosed] = useState(false);
   const [navData, setNavData] = useState<Record<string, NAVPoint[]>>(() => {
     const saved = localStorage.getItem('fund_nav_cache');
     return saved ? JSON.parse(saved) : {};
@@ -192,52 +194,69 @@ export const Holdings: React.FC = () => {
     map.forEach(entry => {
       const h = entry.holding;
       let totalOutofPocketCost = 0; 
-      
-      entry.enhancedTxs.forEach(et => {
+      const sortedEnhanced = [...entry.enhancedTxs].sort((a,b) => a.date.localeCompare(b.date));
+      let currentUnitsForCalc = 0;
+      sortedEnhanced.forEach(et => {
         if (et.type === 'buy') {
           totalOutofPocketCost += et.executedValue;
+          currentUnitsForCalc += et.units;
         } else if (et.type === 'sell') {
-          const costToReduce = h.totalUnits > 0 ? (et.units / (h.totalUnits + et.units)) * totalOutofPocketCost : 0;
+          const costToReduce = currentUnitsForCalc > 0 ? (et.units / currentUnitsForCalc) * totalOutofPocketCost : 0;
           totalOutofPocketCost = Math.max(0, totalOutofPocketCost - costToReduce);
+          currentUnitsForCalc -= et.units;
         }
       });
-      
-      h.avgCost = h.totalUnits > 0 ? totalOutofPocketCost / h.totalUnits : 0;
-      h.transactions = entry.enhancedTxs;
-      
-      if (h.totalUnits > 0.0001) {
-        result.push(h);
+      h.avgCost = currentUnitsForCalc > 0.0001 ? totalOutofPocketCost / currentUnitsForCalc : 0;
+      h.transactions = sortedEnhanced;
+      result.push(h);
+    });
+
+    return result.sort((a, b) => {
+      if (a.totalUnits > 0.0001 && b.totalUnits <= 0.0001) return -1;
+      if (a.totalUnits <= 0.0001 && b.totalUnits > 0.0001) return 1;
+      return b.totalUnits * b.currentNAV - a.totalUnits * a.currentNAV;
+    });
+  }, [transactions, navData]);
+
+  // 新增：本周结余精算统计
+  const weeklyStats = useMemo(() => {
+    const now = new Date();
+    const day = now.getDay();
+    const diffToMonday = day === 0 ? 6 : day - 1;
+    const monday = new Date(now.setDate(now.getDate() - diffToMonday));
+    monday.setHours(0, 0, 0, 0);
+    const mondayStr = monday.toISOString().split('T')[0];
+
+    let totalWeeklyProfit = 0;
+    const catGains: Record<FundCategory, number> = { stock: 0, bond: 0, gold: 0, cash: 0 };
+
+    processedHoldings.forEach(h => {
+      if (h.category === 'cash') {
+        // 货币类仅计算本周分红
+        const weeklyDividends = h.transactions
+          .filter(t => t.type === 'reinvest' && t.date >= mondayStr)
+          .reduce((sum, t) => sum + (t.amount || t.units), 0);
+        catGains.cash += weeklyDividends;
+        totalWeeklyProfit += weeklyDividends;
+      } else {
+        // 非货币类计算周内市值波动
+        if (h.totalUnits <= 0.0001) return;
+        const baseline = findMondayBaseline(h.history);
+        const mondayPrice = baseline?.nav || (h.history.length > 0 ? h.history[0].nav : h.currentNAV);
+        const gain = h.totalUnits * (h.currentNAV - mondayPrice);
+        catGains[h.category] += gain;
+        totalWeeklyProfit += gain;
       }
     });
 
-    return result;
-  }, [transactions, navData]);
+    const contributionData = (['stock', 'bond', 'gold', 'cash'] as FundCategory[]).map(cat => ({
+      name: getCategoryName(cat),
+      value: parseFloat(catGains[cat].toFixed(2)),
+      key: cat
+    })).sort((a, b) => b.value - a.value);
 
-  const filteredHistory = useMemo(() => {
-    if (!selectedHolding || !selectedHolding.history || selectedHolding.history.length === 0) return [];
-    const earliestTxTs = Math.min(...selectedHolding.transactions.map(t => new Date(t.date).getTime()));
-    const padding = 7 * 24 * 60 * 60 * 1000;
-    return selectedHolding.history.filter(p => p.timestamp >= (earliestTxTs - padding));
-  }, [selectedHolding]);
-
-  const cashScaleHistory = useMemo(() => {
-    if (!selectedHolding || selectedHolding.category !== 'cash') return [];
-    
-    const sortedTxs = [...selectedHolding.transactions].sort((a, b) => a.date.localeCompare(b.date));
-    let runningTotal = 0;
-    
-    const dailyData: Record<string, number> = {};
-    sortedTxs.forEach(t => {
-      if (t.type === 'buy' || t.type === 'reinvest') runningTotal += t.units;
-      else if (t.type === 'sell') runningTotal -= t.units;
-      dailyData[t.date] = runningTotal;
-    });
-
-    return Object.entries(dailyData).map(([date, balance]) => ({
-      date,
-      balance: parseFloat(balance.toFixed(2))
-    })).sort((a, b) => a.date.localeCompare(b.date));
-  }, [selectedHolding]);
+    return { totalWeeklyProfit, catGains, contributionData, mondayStr };
+  }, [processedHoldings]);
 
   const stats = useMemo(() => {
     let totalMarketValue = 0;
@@ -245,11 +264,13 @@ export const Holdings: React.FC = () => {
     const catValue: Record<string, number> = { stock: 0, bond: 0, gold: 0, cash: 0 };
     
     processedHoldings.forEach(h => {
-      const val = h.totalUnits * h.currentNAV;
-      const cost = h.totalUnits * h.avgCost;
-      totalMarketValue += val;
-      totalCostValue += cost;
-      catValue[h.category] += val;
+      if (h.totalUnits > 0.0001) {
+        const val = h.totalUnits * h.currentNAV;
+        const cost = h.totalUnits * h.avgCost;
+        totalMarketValue += val;
+        totalCostValue += cost;
+        catValue[h.category] += val;
+      }
     });
 
     const pieData = Object.entries(catValue).map(([name, value]) => ({
@@ -292,6 +313,41 @@ export const Holdings: React.FC = () => {
     });
   };
 
+  const visibleHoldings = showClosed 
+    ? processedHoldings 
+    : processedHoldings.filter(h => h.totalUnits > 0.0001);
+
+  // 精算：计算选中资产的特定历史视图数据
+  const { cashScaleHistory, filteredHistory } = useMemo(() => {
+    if (!selectedHolding) return { cashScaleHistory: [], filteredHistory: [] };
+
+    if (selectedHolding.category === 'cash') {
+      // 对货币类资产，通过交易流水还原余额变动曲线
+      const sortedTxs = [...selectedHolding.transactions].sort((a, b) => a.date.localeCompare(b.date));
+      let currentBalance = 0;
+      const history = sortedTxs.map(t => {
+        // 货币类资产 units 通常等于金额，优先取 amount
+        const change = (t.amount !== undefined && t.amount !== null) ? t.amount : t.units;
+        if (t.type === 'buy' || t.type === 'reinvest') {
+          currentBalance += change;
+        } else if (t.type === 'sell') {
+          currentBalance -= change;
+        }
+        return {
+          date: t.date,
+          balance: parseFloat(currentBalance.toFixed(2))
+        };
+      });
+      return { cashScaleHistory: history, filteredHistory: [] };
+    } else {
+      // 对非货币类，直接使用外部抓取的净值历史
+      return { 
+        cashScaleHistory: [], 
+        filteredHistory: selectedHolding.history 
+      };
+    }
+  }, [selectedHolding]);
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -322,13 +378,88 @@ export const Holdings: React.FC = () => {
         </button>
       </div>
 
+      {/* 本周结余精算看板 */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-[2.5rem] p-8 backdrop-blur-xl shadow-2xl relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row gap-8 items-center justify-between relative z-10">
+           <div className="space-y-4 max-w-sm">
+             <div className="flex items-center gap-2">
+               <Sparkles className="text-amber-400" size={16} />
+               <span className="text-[10px] uppercase font-black text-slate-500 tracking-[0.2em]">Weekly Performance Hub</span>
+             </div>
+             <h2 className="text-2xl font-black text-white">本周结余详情</h2>
+             <div className="space-y-1">
+               <div className={`text-4xl font-mono font-black ${weeklyStats.totalWeeklyProfit >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
+                 {weeklyStats.totalWeeklyProfit >= 0 ? '+' : ''}{formatCurrency(weeklyStats.totalWeeklyProfit, 2)}
+               </div>
+               <p className="text-xs text-slate-500 font-medium">统计周期：自本周一 {weeklyStats.mondayStr} 至今</p>
+             </div>
+             <div className="pt-4 flex items-center gap-4">
+                <div className="flex items-center gap-1 text-[10px] text-slate-400 bg-white/5 px-2 py-1 rounded-full border border-white/10">
+                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                   <span>浮盈贡献</span>
+                </div>
+                <div className="flex items-center gap-1 text-[10px] text-slate-400 bg-white/5 px-2 py-1 rounded-full border border-white/10">
+                   <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>
+                   <span>资产回撤</span>
+                </div>
+             </div>
+           </div>
+
+           <div className="flex-1 w-full lg:max-w-xl h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={weeklyStats.contributionData} layout="vertical" margin={{ left: 20, right: 40 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} opacity={0.2} />
+                  <XAxis type="number" hide />
+                  <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 'bold' }} />
+                  <ChartTooltip 
+                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="bg-slate-900 border border-white/20 p-3 rounded-xl shadow-2xl">
+                            <p className="text-[10px] uppercase font-bold text-slate-500 mb-1">{data.name} 本周贡献</p>
+                            <p className={`text-lg font-mono font-black ${data.value >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
+                              {data.value >= 0 ? '+' : ''}{formatCurrency(data.value, 2)}
+                            </p>
+                            {data.key === 'cash' && <p className="text-[8px] text-amber-500 mt-1 uppercase">* 仅计入分红记录</p>}
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={24}>
+                    {weeklyStats.contributionData.map((entry, index) => (
+                      <BarCell key={`cell-${index}`} fill={entry.value >= 0 ? '#10b981' : '#f43f5e'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+           </div>
+        </div>
+        <div className="absolute top-0 right-0 w-64 h-64 bg-brand-500/5 blur-[80px] rounded-full -translate-y-1/2 translate-x-1/2"></div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-8 bg-slate-850 rounded-3xl border border-slate-700 overflow-hidden flex flex-col shadow-xl">
           <div className="p-6 border-b border-slate-700 flex items-center justify-between">
             <h3 className="font-bold text-lg flex items-center gap-2 text-white">
               <Coins className="text-brand-400" size={20} /> 动态持仓精算视图
             </h3>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setShowClosed(!showClosed)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  showClosed 
+                    ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30' 
+                    : 'bg-slate-800 text-slate-400 border border-transparent hover:border-slate-600'
+                }`}
+                title={showClosed ? "隐藏已结清资产" : "显示历史结清资产"}
+              >
+                {showClosed ? <Eye size={14} /> : <EyeOff size={14} />}
+                {showClosed ? '显示结清' : '显示结清'}
+              </button>
               <button 
                 onClick={handleRefreshAll}
                 disabled={isSyncingAll || processedHoldings.length === 0}
@@ -356,14 +487,15 @@ export const Holdings: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
-                {processedHoldings.map(h => {
-                  const profit = (h.currentNAV - h.avgCost) * h.totalUnits;
+                {visibleHoldings.map(h => {
+                  const isClosed = h.totalUnits <= 0.0001;
+                  const profit = isClosed ? 0 : (h.currentNAV - h.avgCost) * h.totalUnits;
                   const isItemLoading = loading[h.code];
                   return (
                     <tr 
                       key={h.code} 
                       onClick={() => setSelectedHolding(h)}
-                      className="hover:bg-slate-800/30 transition-colors cursor-pointer group active:bg-slate-800/60"
+                      className={`hover:bg-slate-800/30 transition-colors cursor-pointer group active:bg-slate-800/60 ${isClosed ? 'opacity-40 grayscale-[0.6]' : ''}`}
                     >
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-3">
@@ -371,6 +503,7 @@ export const Holdings: React.FC = () => {
                           <div className="relative">
                             <div className="text-sm font-bold text-white group-hover:text-brand-400 transition-colors flex items-center gap-2">
                               {h.name}
+                              {isClosed && <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 uppercase font-black">Closed</span>}
                               {isItemLoading && <Loader2 size={12} className="animate-spin text-brand-500" />}
                             </div>
                             <div className="text-[10px] font-mono text-slate-500">{h.code}</div>
@@ -385,10 +518,10 @@ export const Holdings: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-5 text-right font-mono font-bold text-white">
-                        {formatCurrency(h.totalUnits * h.currentNAV, 2)}
+                        {isClosed ? '---' : formatCurrency(h.totalUnits * h.currentNAV, 2)}
                       </td>
-                      <td className={`px-6 py-5 text-right font-mono font-bold ${profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {profit >= 0 ? '+' : ''}{formatCurrency(profit, 2)}
+                      <td className={`px-6 py-5 text-right font-mono font-bold ${isClosed ? 'text-slate-600' : profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {isClosed ? '已结清' : `${profit >= 0 ? '+' : ''}${formatCurrency(profit, 2)}`}
                       </td>
                     </tr>
                   );
@@ -434,7 +567,6 @@ export const Holdings: React.FC = () => {
                           />
                         ))}
                       </Pie>
-                      {/* 核心修正：增加 wrapperStyle 与 allowEscapeViewBox */}
                       <ChartTooltip 
                         content={<CustomPieTooltip />} 
                         wrapperStyle={{ zIndex: 1000, pointerEvents: 'none' }}
@@ -443,7 +575,6 @@ export const Holdings: React.FC = () => {
                     </PieChart>
                   </ResponsiveContainer>
                   
-                  {/* 中央视觉核心装饰 */}
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none z-0">
                     <div className="w-16 h-16 rounded-full border border-slate-700/30 flex items-center justify-center">
                        <PieIcon size={14} className="text-brand-500/10" />
@@ -451,7 +582,6 @@ export const Holdings: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 分类明细列表 */}
                 <div className="mt-4 space-y-2 overflow-auto custom-scrollbar flex-1 pr-1">
                   {stats.pieData.map((item) => (
                     <div key={item.key} className="flex items-center justify-between p-3 rounded-2xl bg-slate-900/40 border border-slate-700/30 group hover:border-brand-500/30 transition-all">
@@ -578,11 +708,14 @@ export const Holdings: React.FC = () => {
           <div className="relative bg-slate-900 border-l border-slate-700 w-full max-w-2xl h-full shadow-2xl animate-in slide-in-from-right overflow-y-auto custom-scrollbar flex flex-col">
             <div className="p-8 bg-slate-850 border-b border-slate-700 flex justify-between items-start sticky top-0 z-20">
               <div className="flex items-center gap-4">
-                <div className="p-4 rounded-2xl bg-brand-600 shadow-xl shadow-brand-500/10 text-white">
+                <div className={`p-4 rounded-2xl shadow-xl shadow-brand-500/10 text-white ${selectedHolding.totalUnits <= 0.0001 ? 'bg-slate-700' : 'bg-brand-600'}`}>
                   <Coins size={32} />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold text-white">{selectedHolding.name}</h2>
+                  <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                    {selectedHolding.name}
+                    {selectedHolding.totalUnits <= 0.0001 && <span className="text-xs px-2 py-1 bg-slate-800 text-slate-500 rounded-lg border border-slate-700 uppercase font-black tracking-tighter">Liquidated</span>}
+                  </h2>
                   <div className="text-xs font-mono text-slate-400 mt-1">{selectedHolding.code} · {getCategoryName(selectedHolding.category)}</div>
                 </div>
               </div>
@@ -592,10 +725,10 @@ export const Holdings: React.FC = () => {
             <div className="p-8 space-y-8 flex-1">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  { label: '总持仓份额', value: selectedHolding.totalUnits.toFixed(2), unit: '份' },
-                  { label: '摊薄平均价', value: selectedHolding.avgCost.toFixed(selectedHolding.category === 'cash' ? 2 : 4), highlight: true, highlightColor: 'text-brand-400' },
+                  { label: '持有总份额', value: selectedHolding.totalUnits.toFixed(2), unit: '份' },
+                  { label: '摊薄平均价', value: selectedHolding.totalUnits > 0.0001 ? selectedHolding.avgCost.toFixed(selectedHolding.category === 'cash' ? 2 : 4) : '---', highlight: selectedHolding.totalUnits > 0.0001, highlightColor: 'text-brand-400' },
                   { label: '最新单位净值', value: selectedHolding.currentNAV.toFixed(selectedHolding.category === 'cash' ? 2 : 4) },
-                  { label: '账面总盈亏', value: formatCurrency((selectedHolding.currentNAV - selectedHolding.avgCost) * selectedHolding.totalUnits, 2), highlight: true },
+                  { label: '持仓账面盈亏', value: selectedHolding.totalUnits > 0.0001 ? formatCurrency((selectedHolding.currentNAV - selectedHolding.avgCost) * selectedHolding.totalUnits, 2) : '已结清', highlight: selectedHolding.totalUnits > 0.0001 },
                 ].map((item, i) => (
                   <div key={i} className="bg-slate-800/30 border border-slate-700/50 p-4 rounded-2xl">
                     <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{item.label}</p>
@@ -608,20 +741,20 @@ export const Holdings: React.FC = () => {
 
               <div className="space-y-4">
                 <h5 className="font-bold flex items-center gap-2 text-slate-300 border-b border-slate-800 pb-2">
-                  <Calendar size={18} className="text-brand-400" /> 单位净值穿透记录 (T日成交)
+                  <Calendar size={18} className="text-brand-400" /> 历史成交脉络 (流水明细)
                 </h5>
                 <div className="space-y-3">
                   {selectedHolding.transactions.sort((a,b) => b.date.localeCompare(a.date)).map((t: any) => (
-                    <div key={t.id} className="bg-slate-800/20 border border-slate-700 p-5 rounded-2xl flex items-center justify-between group border-l-4 border-l-brand-500 shadow-sm">
+                    <div key={t.id} className={`bg-slate-800/20 border border-slate-700 p-5 rounded-2xl flex items-center justify-between group shadow-sm transition-all border-l-4 ${t.type === 'buy' ? 'border-l-emerald-500' : t.type === 'sell' ? 'border-l-red-500' : 'border-l-brand-500'}`}>
                       <div className="flex items-center gap-4">
                         <div className={`p-2 rounded-xl ${t.type === 'buy' ? 'bg-emerald-500/10 text-emerald-400' : t.type === 'sell' ? 'bg-red-500/10 text-red-400' : 'bg-brand-500/10 text-brand-400'}`}>
                           {t.type === 'buy' ? <ArrowUpRight size={20} /> : t.type === 'sell' ? <ArrowDownRight size={20} /> : <TrendingUp size={20} />}
                         </div>
                         <div>
                           <div className="text-sm font-bold text-slate-200">
-                            {t.type === 'buy' ? '买入' : t.type === 'sell' ? '赎回' : '分红增持'}
+                            {t.type === 'buy' ? '申购确认' : t.type === 'sell' ? '赎回确认' : '分红/再投资'}
                           </div>
-                          <div className="text-[10px] text-slate-500 font-mono mt-0.5 italic">确认日: {t.date}</div>
+                          <div className="text-[10px] text-slate-500 font-mono mt-0.5 italic">确认日期: {t.date}</div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -629,7 +762,7 @@ export const Holdings: React.FC = () => {
                           {t.type === 'sell' ? '-' : '+'}{t.units.toFixed(2)} <span className="text-[10px] opacity-40">份</span>
                         </div>
                         <div className={`flex items-center justify-end gap-1.5 text-[10px] mt-1.5 font-bold ${t.type === 'reinvest' ? 'text-brand-400' : 'text-slate-500'}`}>
-                          <Target size={12} /> {t.type === 'reinvest' ? '分红基准' : '成交价(T日)'}: {t.executedPrice.toFixed(selectedHolding.category === 'cash' ? 2 : 4)}
+                          <Target size={12} /> {t.type === 'reinvest' ? '分红估算' : '确认价(T日)'}: {t.executedPrice.toFixed(selectedHolding.category === 'cash' ? 2 : 4)}
                         </div>
                       </div>
                       <button onClick={() => { removeTx(t.id); setSelectedHolding(null); }} className="opacity-0 group-hover:opacity-100 p-2 text-slate-600 hover:text-red-400 transition-all rounded-lg ml-2">
@@ -644,7 +777,7 @@ export const Holdings: React.FC = () => {
                 <div className="flex items-center justify-between mb-6">
                   <h5 className="font-bold flex items-center gap-2 text-slate-300">
                     {selectedHolding.category === 'cash' ? <BarChart3 size={18} className="text-brand-400" /> : <LineChart size={18} className="text-brand-400" />}
-                    {selectedHolding.category === 'cash' ? '存量变化趋势' : '单位净值波动与成交锚点'}
+                    {selectedHolding.category === 'cash' ? '流动性存量趋势' : '净值轨迹与成交分布'}
                   </h5>
                 </div>
                 <div className="h-64">
@@ -671,7 +804,7 @@ export const Holdings: React.FC = () => {
                           const idx = selectedHolding.history.findIndex(p => formatDateLocal(p.timestamp) >= confirmDateStr);
                           const pt = idx > 0 ? selectedHolding.history[idx - 1] : (idx === 0 ? selectedHolding.history[0] : null);
                           if (!pt) return null;
-                          return <ReferenceDot key={t.id} x={pt.timestamp} y={pt.nav} r={5} fill="#10b981" stroke="#fff" strokeWidth={2} />;
+                          return <ReferenceDot key={t.id} x={pt.timestamp} y={pt.nav} r={5} fill={t.type === 'buy' ? '#10b981' : t.type === 'sell' ? '#ef4444' : '#38bdf8'} stroke="#fff" strokeWidth={2} />;
                         })}
                       </ReLineChart>
                     )}
