@@ -45,6 +45,8 @@ const CustomPieTooltip = ({ active, payload }: any) => {
   return null;
 };
 
+type HistoryRange = 'all' | 'investment' | '3m';
+
 export const Holdings: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('fund_transactions');
@@ -54,6 +56,7 @@ export const Holdings: React.FC = () => {
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
+  const [historyRange, setHistoryRange] = useState<HistoryRange>('investment');
   const [navData, setNavData] = useState<Record<string, NAVPoint[]>>(() => {
     const saved = localStorage.getItem('fund_nav_cache');
     return saved ? JSON.parse(saved) : {};
@@ -218,7 +221,6 @@ export const Holdings: React.FC = () => {
     });
   }, [transactions, navData]);
 
-  // 新增：本周结余精算统计
   const weeklyStats = useMemo(() => {
     const now = new Date();
     const day = now.getDay();
@@ -232,14 +234,12 @@ export const Holdings: React.FC = () => {
 
     processedHoldings.forEach(h => {
       if (h.category === 'cash') {
-        // 货币类仅计算本周分红
         const weeklyDividends = h.transactions
           .filter(t => t.type === 'reinvest' && t.date >= mondayStr)
           .reduce((sum, t) => sum + (t.amount || t.units), 0);
         catGains.cash += weeklyDividends;
         totalWeeklyProfit += weeklyDividends;
       } else {
-        // 非货币类计算周内市值波动
         if (h.totalUnits <= 0.0001) return;
         const baseline = findMondayBaseline(h.history);
         const mondayPrice = baseline?.nav || (h.history.length > 0 ? h.history[0].nav : h.currentNAV);
@@ -317,36 +317,34 @@ export const Holdings: React.FC = () => {
     ? processedHoldings 
     : processedHoldings.filter(h => h.totalUnits > 0.0001);
 
-  // 精算：计算选中资产的特定历史视图数据
   const { cashScaleHistory, filteredHistory } = useMemo(() => {
     if (!selectedHolding) return { cashScaleHistory: [], filteredHistory: [] };
 
     if (selectedHolding.category === 'cash') {
-      // 对货币类资产，通过交易流水还原余额变动曲线
       const sortedTxs = [...selectedHolding.transactions].sort((a, b) => a.date.localeCompare(b.date));
       let currentBalance = 0;
       const history = sortedTxs.map(t => {
-        // 货币类资产 units 通常等于金额，优先取 amount
         const change = (t.amount !== undefined && t.amount !== null) ? t.amount : t.units;
-        if (t.type === 'buy' || t.type === 'reinvest') {
-          currentBalance += change;
-        } else if (t.type === 'sell') {
-          currentBalance -= change;
-        }
-        return {
-          date: t.date,
-          balance: parseFloat(currentBalance.toFixed(2))
-        };
+        if (t.type === 'buy' || t.type === 'reinvest') currentBalance += change;
+        else if (t.type === 'sell') currentBalance -= change;
+        return { date: t.date, balance: parseFloat(currentBalance.toFixed(2)) };
       });
       return { cashScaleHistory: history, filteredHistory: [] };
     } else {
-      // 对非货币类，直接使用外部抓取的净值历史
-      return { 
-        cashScaleHistory: [], 
-        filteredHistory: selectedHolding.history 
-      };
+      let result = selectedHolding.history;
+      
+      if (historyRange === 'investment') {
+        const earliestTxTs = Math.min(...selectedHolding.transactions.map(t => new Date(t.date).getTime()));
+        const buffer = 7 * 24 * 60 * 60 * 1000;
+        result = result.filter(p => p.timestamp >= (earliestTxTs - buffer));
+      } else if (historyRange === '3m') {
+        const threeMonthsAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+        result = result.filter(p => p.timestamp >= threeMonthsAgo);
+      }
+
+      return { cashScaleHistory: [], filteredHistory: result };
     }
-  }, [selectedHolding]);
+  }, [selectedHolding, historyRange]);
 
   return (
     <div className="space-y-6">
@@ -378,7 +376,6 @@ export const Holdings: React.FC = () => {
         </button>
       </div>
 
-      {/* 本周结余精算看板 */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-[2.5rem] p-8 backdrop-blur-xl shadow-2xl relative overflow-hidden">
         <div className="flex flex-col lg:flex-row gap-8 items-center justify-between relative z-10">
            <div className="space-y-4 max-w-sm">
@@ -531,7 +528,6 @@ export const Holdings: React.FC = () => {
           </div>
         </div>
 
-        {/* 市值分配比例面板 */}
         <div className="lg:col-span-4 bg-slate-850/80 backdrop-blur-xl rounded-3xl border border-slate-700/50 p-6 flex flex-col shadow-2xl relative">
           <div className="flex items-center gap-2 mb-6 shrink-0">
             <div className="p-2 bg-brand-500/20 rounded-lg">
@@ -774,12 +770,35 @@ export const Holdings: React.FC = () => {
               </div>
 
               <div className="bg-slate-850 rounded-3xl border border-slate-700 p-6">
-                <div className="flex items-center justify-between mb-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
                   <h5 className="font-bold flex items-center gap-2 text-slate-300">
                     {selectedHolding.category === 'cash' ? <BarChart3 size={18} className="text-brand-400" /> : <LineChart size={18} className="text-brand-400" />}
                     {selectedHolding.category === 'cash' ? '流动性存量趋势' : '净值轨迹与成交分布'}
                   </h5>
+                  
+                  {selectedHolding.category !== 'cash' && (
+                    <div className="flex bg-slate-900/50 p-1 rounded-xl border border-slate-700 self-start sm:self-auto">
+                      {[
+                        { id: 'all', label: '创立来' },
+                        { id: 'investment', label: '投资来' },
+                        { id: '3m', label: '近3月' }
+                      ].map(r => (
+                        <button
+                          key={r.id}
+                          onClick={() => setHistoryRange(r.id as HistoryRange)}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+                            historyRange === r.id 
+                              ? 'bg-brand-600 text-white shadow-lg shadow-brand-500/20' 
+                              : 'text-slate-500 hover:text-slate-300'
+                          }`}
+                        >
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
+                
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     {selectedHolding.category === 'cash' ? (
@@ -797,13 +816,21 @@ export const Holdings: React.FC = () => {
                         <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} opacity={0.3} />
                         <XAxis dataKey="timestamp" hide />
                         <YAxis domain={['auto', 'auto']} hide />
-                        <ChartTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '12px' }} labelFormatter={(v) => new Date(v).toLocaleDateString()} />
-                        <Line type="monotone" dataKey="nav" stroke="#0ea5e9" strokeWidth={2} dot={false} />
+                        <ChartTooltip 
+                          contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '12px' }} 
+                          labelFormatter={(v) => new Date(v).toLocaleDateString()} 
+                        />
+                        <Line type="monotone" dataKey="nav" stroke="#0ea5e9" strokeWidth={2} dot={false} animationDuration={600} />
                         {selectedHolding.transactions.map(t => {
                           const confirmDateStr = t.date;
                           const idx = selectedHolding.history.findIndex(p => formatDateLocal(p.timestamp) >= confirmDateStr);
                           const pt = idx > 0 ? selectedHolding.history[idx - 1] : (idx === 0 ? selectedHolding.history[0] : null);
+                          
                           if (!pt) return null;
+                          
+                          const isVisible = filteredHistory.some(fp => fp.timestamp === pt.timestamp);
+                          if (!isVisible) return null;
+
                           return <ReferenceDot key={t.id} x={pt.timestamp} y={pt.nav} r={5} fill={t.type === 'buy' ? '#10b981' : t.type === 'sell' ? '#ef4444' : '#38bdf8'} stroke="#fff" strokeWidth={2} />;
                         })}
                       </ReLineChart>
