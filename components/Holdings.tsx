@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, LineChart, PieChart as PieIcon, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Coins, History, Loader2, X, Target, Info, Zap, Clock, MousePointer2, BarChart3, TrendingUp, RefreshCw, Eye, EyeOff, Archive, ArrowRightLeft, Sparkles, TrendingDown } from 'lucide-react';
+import { Plus, Trash2, LineChart, PieChart as PieIcon, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Coins, History, Loader2, X, Target, Info, Zap, Clock, MousePointer2, BarChart3, TrendingUp, RefreshCw, Eye, EyeOff, Archive, ArrowRightLeft, Sparkles, TrendingDown, ReceiptText, Edit3, DollarSign, Tag } from 'lucide-react';
 import { Transaction, Holding, FundCategory, TransactionType, NAVPoint, EnhancedTransaction } from '../types';
 import { formatCurrency } from '../utils/calculator';
 import { fetchFundData, getCategoryName, findMondayBaseline } from '../utils/fundApi';
@@ -54,8 +54,12 @@ export const Holdings: React.FC = () => {
     const saved = localStorage.getItem('fund_nav_cache');
     return saved ? JSON.parse(saved) : {};
   });
-  const [selectedHolding, setSelectedHolding] = useState<Holding | null>(null);
+  
+  // 核心变更：只存储选中的代码，数据通过计算派生，解决详情页不更新问题
+  const [selectedHoldingCode, setSelectedHoldingCode] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingFeeId, setEditingFeeId] = useState<string | null>(null);
+  const [tempFee, setTempFee] = useState<string>('');
   
   const [form, setForm] = useState<Partial<Transaction>>({
     code: '',
@@ -64,6 +68,7 @@ export const Holdings: React.FC = () => {
     category: 'stock',
     units: 0,
     amount: undefined,
+    fees: 0,
     date: new Date().toISOString().split('T')[0]
   });
 
@@ -189,7 +194,7 @@ export const Holdings: React.FC = () => {
     const result: Holding[] = [];
     map.forEach(entry => {
       const h = entry.holding;
-      let totalOutofPocketCost = 0; 
+      let netOutofPocketBalance = 0; 
       const sortedEnhanced = [...entry.enhancedTxs].sort((a,b) => a.date.localeCompare(b.date));
       let currentUnitsForCalc = 0;
       
@@ -206,19 +211,16 @@ export const Holdings: React.FC = () => {
         return { ...et, impactPercentage };
       });
 
-      let calcBalance = 0;
       impactEnhanced.forEach(et => {
-        if (et.type === 'buy') {
-          totalOutofPocketCost += et.executedValue || 0;
-          calcBalance += et.units;
+        const fee = et.fees || 0;
+        if (et.type === 'buy' || et.type === 'reinvest') {
+          netOutofPocketBalance += (et.executedValue || 0) + fee;
         } else if (et.type === 'sell') {
-          const costToReduce = calcBalance > 0 ? (et.units / calcBalance) * totalOutofPocketCost : 0;
-          totalOutofPocketCost = Math.max(0, totalOutofPocketCost - costToReduce);
-          calcBalance -= et.units;
+          netOutofPocketBalance -= ((et.executedValue || 0) - fee);
         }
       });
       
-      h.avgCost = calcBalance > 0.0001 ? totalOutofPocketCost / calcBalance : 0;
+      h.avgCost = h.totalUnits > 0.0001 ? netOutofPocketBalance / h.totalUnits : 0;
       h.transactions = impactEnhanced;
       result.push(h);
     });
@@ -229,6 +231,12 @@ export const Holdings: React.FC = () => {
       return b.totalUnits * b.currentNAV - a.totalUnits * a.currentNAV;
     });
   }, [transactions, navData]);
+
+  // 获取当前选中的 Holding 对象
+  const selectedHolding = useMemo(() => {
+    if (!selectedHoldingCode) return null;
+    return processedHoldings.find(h => h.code === selectedHoldingCode) || null;
+  }, [processedHoldings, selectedHoldingCode]);
 
   const weeklyStats = useMemo(() => {
     const now = new Date();
@@ -305,15 +313,30 @@ export const Holdings: React.FC = () => {
       category: form.category!,
       units: Number(form.units),
       amount: form.amount ? Number(form.amount) : undefined,
+      fees: form.fees ? Number(form.fees) : 0,
       date: form.date!
     };
     setTransactions([...transactions, newTx]);
     setShowAddModal(false);
-    setForm({ ...form, code: '', name: '', units: 0, amount: undefined });
+    setForm({ ...form, code: '', name: '', units: 0, amount: undefined, fees: 0 });
   };
 
   const removeTx = (id: string) => {
     setTransactions(transactions.filter(t => t.id !== id));
+  };
+
+  const handleUpdateFee = (txId: string) => {
+    if (editingFeeId !== txId) return; // 防止竞争
+    const feeVal = parseFloat(tempFee);
+    if (isNaN(feeVal)) {
+      setEditingFeeId(null);
+      return;
+    }
+    
+    // 直接更新总交易列表，processedHoldings 会自动重算详情
+    setTransactions(prev => prev.map(t => t.id === txId ? { ...t, fees: feeVal } : t));
+    setEditingFeeId(null);
+    setTempFee('');
   };
 
   const fillExistingAsset = (h: Holding) => {
@@ -365,7 +388,7 @@ export const Holdings: React.FC = () => {
           <div className="absolute top-0 right-0 p-8 opacity-10"><Wallet size={80} /></div>
           <span className="text-slate-400 text-xs font-semibold uppercase tracking-widest text-glow">持仓估值总额</span>
           <div className="text-3xl font-bold font-mono text-white mt-1">{formatCurrency(stats.totalMarketValue, 2)}</div>
-          <div className="text-xs text-slate-500 mt-2">累计现金本金: {formatCurrency(stats.totalCostValue, 2)}</div>
+          <div className="text-xs text-slate-500 mt-2">含规费累计支出: {formatCurrency(stats.totalCostValue, 2)}</div>
         </div>
 
         <div className="bg-slate-900/50 border border-slate-700 p-6 rounded-3xl relative overflow-hidden group">
@@ -374,7 +397,7 @@ export const Holdings: React.FC = () => {
           <div className={`text-3xl font-bold font-mono mt-1 ${stats.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
             {stats.profit >= 0 ? '+' : ''}{formatCurrency(stats.profit, 2)}
           </div>
-          <div className="text-xs text-slate-500 mt-2">含分红总收益率: {stats.totalCostValue > 0 ? ((stats.profit / stats.totalCostValue) * 100).toFixed(2) : '0'}%</div>
+          <div className="text-xs text-slate-500 mt-2">含交易损耗净收益率: {stats.totalCostValue > 0 ? ((stats.profit / stats.totalCostValue) * 100).toFixed(2) : '0'}%</div>
         </div>
 
         <button 
@@ -490,7 +513,7 @@ export const Holdings: React.FC = () => {
                 <tr>
                   <th className="px-6 py-4">资产名称</th>
                   <th className="px-6 py-4">持有份额</th>
-                  <th className="px-6 py-4">单位成交价</th>
+                  <th className="px-6 py-4">摊薄单位成本</th>
                   <th className="px-6 py-4 text-right">实时市值</th>
                   <th className="px-6 py-4 text-right">账面盈亏</th>
                 </tr>
@@ -503,7 +526,7 @@ export const Holdings: React.FC = () => {
                   return (
                     <tr 
                       key={h.code} 
-                      onClick={() => setSelectedHolding(h)}
+                      onClick={() => setSelectedHoldingCode(h.code)}
                       className={`hover:bg-slate-800/30 transition-colors cursor-pointer group active:bg-slate-800/60 ${isClosed ? 'opacity-40 grayscale-[0.6]' : ''}`}
                     >
                       <td className="px-6 py-5">
@@ -523,7 +546,7 @@ export const Holdings: React.FC = () => {
                       <td className="px-6 py-5 font-mono text-sm">
                         <div className="text-brand-400 font-bold">{h.avgCost.toFixed(h.category === 'cash' ? 2 : 4)}</div>
                         <div className="text-[10px] text-slate-500 flex items-center gap-1">
-                          <Clock size={10} /> 摊薄后的单位成本
+                          <Clock size={10} /> 包含交易手续费
                         </div>
                       </td>
                       <td className="px-6 py-5 text-right font-mono font-bold text-white">
@@ -686,14 +709,21 @@ export const Holdings: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">成交份额</label>
-                  <input type="number" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 font-mono text-white" value={form.units || ''} onChange={e => setForm({...form, units: parseFloat(e.target.value)})} placeholder="0.00" />
+                  <input type="number" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 font-mono text-white text-sm" value={form.units || ''} onChange={e => setForm({...form, units: parseFloat(e.target.value)})} placeholder="0.00" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">成交金额 (可选)</label>
-                  <input type="number" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 font-mono text-white" value={form.amount || ''} onChange={e => setForm({...form, amount: parseFloat(e.target.value)})} placeholder="留空则按净值估算" />
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">成交金额 (选填)</label>
+                  <input type="number" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-brand-500 font-mono text-white text-sm" value={form.amount || ''} onChange={e => setForm({...form, amount: parseFloat(e.target.value)})} placeholder="留空则按净值" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">手续费</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600 text-[10px]">¥</span>
+                    <input type="number" className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-6 pr-4 py-3 outline-none focus:border-brand-500 font-mono text-white text-sm" value={form.fees || ''} onChange={e => setForm({...form, fees: parseFloat(e.target.value)})} placeholder="0.00" />
+                  </div>
                 </div>
               </div>
 
@@ -712,7 +742,7 @@ export const Holdings: React.FC = () => {
 
       {selectedHolding && (
         <div className="fixed inset-0 z-[110] flex items-center justify-end">
-          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => setSelectedHolding(null)}></div>
+          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => setSelectedHoldingCode(null)}></div>
           <div className="relative bg-slate-900 border-l border-slate-700 w-full max-w-2xl h-full shadow-2xl animate-in slide-in-from-right overflow-y-auto custom-scrollbar flex flex-col">
             <div className="p-8 bg-slate-850 border-b border-slate-700 flex justify-between items-start sticky top-0 z-20">
               <div className="flex items-center gap-4">
@@ -727,7 +757,7 @@ export const Holdings: React.FC = () => {
                   <div className="text-xs font-mono text-slate-400 mt-1">{selectedHolding.code} · {getCategoryName(selectedHolding.category)}</div>
                 </div>
               </div>
-              <button onClick={() => setSelectedHolding(null)} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400"><X size={24} /></button>
+              <button onClick={() => setSelectedHoldingCode(null)} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400"><X size={24} /></button>
             </div>
 
             <div className="p-8 space-y-8 flex-1">
@@ -758,12 +788,14 @@ export const Holdings: React.FC = () => {
                         <div className={`p-2 rounded-xl ${t.type === 'buy' ? 'bg-emerald-500/10 text-emerald-400' : t.type === 'sell' ? 'bg-red-500/10 text-red-400' : 'bg-brand-500/10 text-brand-400'}`}>
                           {t.type === 'buy' ? <ArrowUpRight size={20} /> : t.type === 'sell' ? <ArrowDownRight size={20} /> : <TrendingUp size={20} />}
                         </div>
-                        <div>
+                        <div className="flex flex-col">
                           <div className="text-sm font-bold text-slate-200">
                             {t.type === 'buy' ? '申购确认' : t.type === 'sell' ? '赎回确认' : '分红/再投资'}
                           </div>
-                          <div className="text-[10px] text-slate-500 font-mono mt-0.5 italic flex items-center gap-2">
-                             确认日期: {t.date}
+                          <div className="flex flex-wrap items-center gap-x-2 mt-1">
+                             <span className="text-[10px] text-slate-500 font-mono italic">
+                               {t.date}
+                             </span>
                              {t.impactPercentage && t.impactPercentage > 0 && (
                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${
                                  t.type === 'buy' ? 'bg-emerald-500/20 text-emerald-400' : 
@@ -776,17 +808,71 @@ export const Holdings: React.FC = () => {
                           </div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="text-sm font-bold font-mono text-white">
-                          {t.type === 'sell' ? '-' : '+'}{t.units.toFixed(2)} <span className="text-[10px] opacity-40">份</span>
+                      
+                      <div className="flex items-center gap-4">
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <div className="flex items-center gap-3">
+                            {/* 成交成本价与份额：右上角关键数据 */}
+                            <div className="text-right">
+                               <div className="text-[9px] text-slate-500 uppercase font-black tracking-tighter mb-0.5 flex items-center justify-end gap-1">
+                                  <Tag size={8} /> 成交净值
+                               </div>
+                               <div className="text-sm font-mono font-black text-slate-300 leading-none">
+                                 {t.executedPrice?.toFixed(selectedHolding.category === 'cash' ? 2 : 4)}
+                               </div>
+                            </div>
+
+                            <div className="w-[1px] h-6 bg-slate-700/50"></div>
+
+                            <div className="text-right">
+                              <div className="text-[9px] text-slate-500 uppercase font-black tracking-tighter mb-0.5">交易份额</div>
+                              <div className="text-sm font-black font-mono text-white leading-none">
+                                {t.type === 'sell' ? '-' : '+'}{t.units.toFixed(2)}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-end gap-2 mt-1 w-full">
+                            {/* 成交总额：底部操作区左侧 */}
+                            {t.type !== 'reinvest' && (
+                               <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-950/40 border border-white/5">
+                                  <DollarSign size={10} className="text-slate-600" />
+                                  <span className="text-[10px] font-mono font-bold text-slate-500">
+                                    {formatCurrency(t.executedValue || 0, 2)}
+                                  </span>
+                               </div>
+                            )}
+
+                            {/* 手续费编辑入口：底部操作区右侧 */}
+                            {editingFeeId === t.id ? (
+                              <div className="flex items-center bg-slate-900 border border-brand-500/50 rounded-lg px-2 py-0.5 animate-in zoom-in-95 duration-150">
+                                <span className="text-[10px] text-slate-500">¥</span>
+                                <input 
+                                  autoFocus 
+                                  type="number" 
+                                  value={tempFee} 
+                                  onChange={e => setTempFee(e.target.value)} 
+                                  onBlur={() => handleUpdateFee(t.id)}
+                                  onKeyDown={e => e.key === 'Enter' && handleUpdateFee(t.id)}
+                                  className="w-12 bg-transparent text-[10px] font-mono font-bold text-white outline-none text-right" 
+                                />
+                              </div>
+                            ) : (
+                              <button 
+                                onClick={() => { setEditingFeeId(t.id); setTempFee((t.fees || 0).toString()); }}
+                                className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-900/50 hover:bg-slate-800 transition-all border border-white/5 active:scale-95 group/fee"
+                              >
+                                <ReceiptText size={10} className="text-slate-500" />
+                                <span className="text-[10px] font-mono font-bold text-slate-400">费: ¥{(t.fees || 0).toFixed(2)}</span>
+                                <Edit3 size={8} className="text-slate-600 opacity-0 group-hover/fee:opacity-100 transition-opacity" />
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className={`flex items-center justify-end gap-1.5 text-[10px] mt-1.5 font-bold ${t.type === 'reinvest' ? 'text-brand-400' : 'text-slate-500'}`}>
-                          <Target size={12} /> {t.type === 'reinvest' ? '分红估算' : '确认价(T日)'}: {(t.executedPrice || 0).toFixed(selectedHolding.category === 'cash' ? 2 : 4)}
-                        </div>
+                        <button onClick={() => { removeTx(t.id); }} className="opacity-0 group-hover:opacity-100 p-2 text-slate-600 hover:text-red-400 transition-all rounded-lg ml-2 active:scale-90">
+                          <Trash2 size={16} />
+                        </button>
                       </div>
-                      <button onClick={() => { removeTx(t.id); setSelectedHolding(null); }} className="opacity-0 group-hover:opacity-100 p-2 text-slate-600 hover:text-red-400 transition-all rounded-lg ml-2">
-                        <Trash2 size={16} />
-                      </button>
                     </div>
                   ))}
                 </div>

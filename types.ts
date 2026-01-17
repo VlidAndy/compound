@@ -41,6 +41,7 @@ export interface Transaction {
   category: FundCategory;
   units: number;
   amount?: number; 
+  fees?: number;
   date: string; 
   timingAlpha?: number; 
 }
