@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { TrendingDown, TrendingUp, AlertTriangle, CheckCircle2, Coins, ArrowRight, Wallet, Info, Zap, ChevronRight, Activity, ShoppingCart, Timer, Edit3, Save, Clock, RefreshCw, Calendar, Globe, ExternalLink, ShieldCheck, Landmark, Target, Trophy, Percent, Flame, ArrowDownToLine, MousePointerClick, BarChart4, Scale, PieChart as PieIcon, Layers } from 'lucide-react';
+import { TrendingDown, TrendingUp, AlertTriangle, CheckCircle2, Coins, ArrowRight, Wallet, Info, Zap, ChevronRight, Activity, ShoppingCart, Timer, Edit3, Save, Clock, RefreshCw, Calendar, Globe, ExternalLink, ShieldCheck, Landmark, Target, Trophy, Percent, Flame, ArrowDownToLine, MousePointerClick, BarChart4, Scale, PieChart as PieIcon, Layers, ZapIcon } from 'lucide-react';
 import { Transaction, Holding, FundCategory, NAVPoint } from '../types';
 import { fetchRealtimeValuation, findMondayBaseline, getCategoryName } from '../utils/fundApi';
 import { formatCurrency } from '../utils/calculator';
@@ -21,8 +21,8 @@ interface StrategyDecision {
 const CATEGORY_COLORS: Record<string, string> = {
   stock: '#ef4444',
   bond: '#38bdf8',
-  gold: '#fbbf24',
-  cash: '#34d399'
+  gold: '#f59e0b',
+  cash: '#10b981'
 };
 
 export const StrategyEngine: React.FC = () => {
@@ -150,7 +150,6 @@ export const StrategyEngine: React.FC = () => {
     return stats;
   }, [holdingsByCategory, realtimeData]);
 
-  // 计算再平衡比例变化数据 + 建议金额
   const rebalanceStats = useMemo(() => {
     const totalCurrentValue = (Object.values(categoryValues) as number[]).reduce((a, b) => a + b, 0);
     const totalNewValue = totalCurrentValue + budget;
@@ -166,7 +165,7 @@ export const StrategyEngine: React.FC = () => {
         name: getCategoryName(cat),
         category: cat,
         beforePct: totalCurrentValue > 0 ? (currentVal / totalCurrentValue) * 100 : 0,
-        afterPct: totalNewValue > 0 ? (newVal / totalNewValue) * 100 : 0,
+        afterPct: totalNewValue > 0 ? (newVal / totalNewValue) * 100 : 25,
         suggestedAmount: addedVal,
         color: CATEGORY_COLORS[cat]
       };
@@ -213,7 +212,6 @@ export const StrategyEngine: React.FC = () => {
     setEditableDecisions(initialDecisions);
   }, [holdings.length, budget, realtimeData, userSelectedCodes]);
 
-  // 处理日期变更引起的买入价自动回溯逻辑
   const handleDateChange = (idx: number, newDate: string) => {
     const next = [...editableDecisions];
     const decision = next[idx];
@@ -225,7 +223,6 @@ export const StrategyEngine: React.FC = () => {
       return;
     }
 
-    // 从历史 NAV 中寻找指定日期前的最后一个净值
     const history = holding.history;
     const confirmIndex = history.findIndex(p => new Date(p.timestamp).toISOString().split('T')[0] >= newDate);
     let newPrice = decision.currentNAV;
@@ -258,7 +255,7 @@ export const StrategyEngine: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500 pb-12">
-      <div className={`p-8 rounded-[2.5rem] relative overflow-hidden border-2 ${
+      <div className={`p-8 rounded-[2.5rem] relative overflow-hidden border-2 transition-all duration-500 ${
         globalSignal === 'high' ? 'bg-emerald-950/40 border-emerald-400' :
         globalSignal === 'good' ? 'bg-blue-950/40 border-brand-500' : 'bg-orange-950/30 border-orange-500/50'
       }`}>
@@ -289,39 +286,53 @@ export const StrategyEngine: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-4 flex flex-col gap-6">
-          {/* 1. 资产再平衡精算面板 */}
-          <div className="bg-slate-900/60 border border-slate-800 rounded-[2.5rem] p-8 space-y-6 backdrop-blur-xl">
-             <h3 className="font-black text-white flex items-center gap-3 uppercase tracking-wider text-xs">
-                <div className="p-2 bg-brand-500/20 rounded-lg"><Scale size={16} className="text-brand-400" /></div>
-                再平衡预估 (Balance Actuary)
-             </h3>
-             <div className="space-y-6">
+          <div className="bg-slate-900/60 border border-slate-800 rounded-[2.5rem] p-8 space-y-8 backdrop-blur-xl">
+             <div className="flex items-center gap-3">
+                <div className="p-3 bg-brand-500/10 rounded-2xl border border-brand-500/20">
+                  <Scale size={20} className="text-brand-400" />
+                </div>
+                <h3 className="font-black text-white text-base tracking-tight">
+                   再平衡预估 (BALANCE STATS)
+                </h3>
+             </div>
+
+             <div className="space-y-10">
                 {rebalanceStats.stats.map(s => (
-                  <div key={s.category} className="space-y-2">
-                    <div className="flex justify-between items-end">
-                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">{s.name}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-slate-600 line-through font-mono">{s.beforePct.toFixed(1)}%</span>
-                        <ArrowRight size={10} className="text-slate-700" />
-                        <span className={`text-xs font-mono font-black ${Math.abs(s.afterPct - 25) < Math.abs(s.beforePct - 25) ? 'text-emerald-400' : 'text-white'}`}>
+                  <div key={s.category} className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }}></div>
+                        <span className="text-sm font-bold text-slate-200">{s.name}</span>
+                      </div>
+                      <div className="flex items-center gap-3 font-mono">
+                        <span className="text-xs text-slate-500 opacity-60 line-through">{s.beforePct.toFixed(1)}%</span>
+                        <ArrowRight size={12} className="text-slate-600" />
+                        <span className="text-sm font-black text-emerald-400">
                           {s.afterPct.toFixed(1)}%
                         </span>
                       </div>
                     </div>
-                    <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
-                       <div className="h-full transition-all duration-1000" style={{ width: `${s.afterPct}%`, backgroundColor: s.color }} />
+                    
+                    <div className="h-1.5 w-full bg-slate-800/80 rounded-full overflow-hidden">
+                       <div 
+                        className="h-full transition-all duration-1000 shadow-[0_0_10px_rgba(255,255,255,0.1)]" 
+                        style={{ width: `${s.afterPct}%`, backgroundColor: s.color }} 
+                       />
                     </div>
-                    {s.suggestedAmount > 0 && (
-                      <div className="flex justify-end">
-                        <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest">+ {formatCurrency(s.suggestedAmount, 2)}</span>
+
+                    <div className="flex justify-end">
+                      <div className={`flex items-center gap-1.5 ${s.suggestedAmount > 0 ? 'text-emerald-400' : 'text-slate-600 opacity-40'}`}>
+                        <ZapIcon size={12} fill="currentColor" stroke="none" />
+                        <span className="text-[11px] font-black uppercase tracking-wider">
+                          流入追加 {formatCurrency(s.suggestedAmount, 2)}
+                        </span>
                       </div>
-                    )}
+                    </div>
                   </div>
                 ))}
              </div>
           </div>
 
-          {/* 2. 资产类别周波动率面板 */}
           <div className="bg-slate-900/60 border border-slate-800 rounded-[2.5rem] p-8 space-y-6 backdrop-blur-xl">
             <h3 className="font-black text-white flex items-center gap-3 uppercase tracking-wider text-xs">
               <div className="p-2 bg-brand-500/20 rounded-lg"><BarChart4 size={16} className="text-brand-400" /></div>
@@ -347,7 +358,6 @@ export const StrategyEngine: React.FC = () => {
             </div>
           </div>
 
-          {/* 3. 份额收割目标面板 */}
           <div className="bg-slate-900/60 border border-slate-800 rounded-[2.5rem] p-8 space-y-6 backdrop-blur-xl">
              <h3 className="font-black text-white flex items-center gap-3 uppercase tracking-wider text-xs">
                 <div className="p-2 bg-amber-500/20 rounded-lg"><Target size={16} className="text-amber-400" /></div>
@@ -376,114 +386,155 @@ export const StrategyEngine: React.FC = () => {
           </div>
         </div>
 
-        {/* 4. 执行决策列表：强化视觉与功能 */}
         <div className="lg:col-span-8 bg-slate-900/60 border border-slate-800 rounded-[2.5rem] flex flex-col shadow-2xl backdrop-blur-xl overflow-hidden">
            <div className="p-8 border-b border-white/5 flex items-center justify-between">
              <h3 className="font-black text-white flex items-center gap-3 uppercase tracking-wider text-sm">
-               <div className="p-2 bg-brand-500/20 rounded-lg"><ShoppingCart size={16} className="text-brand-400" /></div>
+               <div className="p-2 bg-brand-500/10 rounded-lg"><ShoppingCart size={16} className="text-brand-400" /></div>
                本期收割清单
              </h3>
            </div>
            
-           <div className="flex-1 overflow-auto custom-scrollbar p-8 space-y-6">
+           <div className="flex-1 overflow-auto custom-scrollbar p-6 space-y-8">
              {editableDecisions.length > 0 ? (
                editableDecisions.map((d, idx) => (
-                 <div key={d.code} className={`p-8 rounded-[2rem] border transition-all relative ${d.discountIndex < 1 ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-slate-800/40 border-white/5'}`}>
-                   <div className="flex flex-col xl:flex-row gap-8 items-start xl:items-center">
-                      {/* 资产名 */}
-                      <div className="flex items-center gap-4 min-w-[200px]">
-                         <div className="w-2 h-12 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[d.category] }}></div>
-                         <div>
-                           <div className="flex items-center gap-2">
-                             <div className="text-lg font-black text-white">{d.name}</div>
-                             {holdingsByCategory[d.category].length > 1 && (
-                               <button onClick={() => handleSwapFund(d.category)} className="p-1 text-slate-600 hover:text-brand-400 transition-colors">
-                                 <RefreshCw size={12} />
-                               </button>
-                             )}
+                 <div key={d.code} className={`p-6 md:p-8 rounded-[3rem] border-2 transition-all relative overflow-hidden ${d.discountIndex < 1 ? 'bg-emerald-500/5 border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.05)]' : 'bg-slate-850/40 border-white/10'}`}>
+                    {/* 背景装饰：折扣标识 */}
+                    {d.discountIndex < 1 && (
+                      <div className="absolute -top-10 -right-10 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                    )}
+                    
+                    <div className="flex flex-col space-y-8 relative z-10">
+                      {/* 第一层：资产信息 */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-5">
+                           <div className="w-2 h-14 rounded-full shadow-lg" style={{ backgroundColor: CATEGORY_COLORS[d.category] }}></div>
+                           <div>
+                             <div className="flex items-center gap-3">
+                               <h4 className="text-2xl font-black text-white tracking-tight">{d.name}</h4>
+                               {holdingsByCategory[d.category].length > 1 && (
+                                 <button onClick={() => handleSwapFund(d.category)} className="p-1.5 bg-white/5 hover:bg-white/10 text-slate-400 rounded-lg transition-all" title="切换同类资产">
+                                   <RefreshCw size={14} />
+                                 </button>
+                               )}
+                             </div>
+                             <p className="text-[11px] text-slate-500 font-mono mt-1 uppercase tracking-[0.2em]">{d.code} · {getCategoryName(d.category)}</p>
                            </div>
-                           <div className="text-[10px] text-slate-500 font-mono mt-0.5 uppercase tracking-widest">{d.code}</div>
-                         </div>
+                        </div>
+                        {d.discountIndex < 1 && (
+                          <div className="px-4 py-1.5 bg-emerald-500/20 border border-emerald-500/40 rounded-full flex items-center gap-2">
+                             <Flame size={14} className="text-emerald-400 animate-pulse" />
+                             <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">低位机会</span>
+                          </div>
+                        )}
                       </div>
 
-                      {/* 关键精算指标 - 重构竖向排列布局 */}
-                      <div className="grid grid-cols-3 gap-8 flex-1 w-full">
-                         <div className="flex flex-col gap-2">
-                            <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest border-l-2 border-slate-700 pl-2">摊薄成本</span>
-                            <div className="text-lg font-mono font-black text-slate-300">
-                              {d.avgCost.toFixed(4)}
-                            </div>
-                         </div>
-                         <div className="flex flex-col gap-2">
-                            <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest border-l-2 border-slate-700 pl-2">实时买入</span>
-                            <div className="text-lg font-mono font-black text-white">
-                              {d.currentNAV.toFixed(4)}
-                            </div>
-                         </div>
-                         <div className="flex flex-col gap-2">
-                            <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest border-l-2 border-slate-700 pl-2">折扣指数</span>
-                            <div className={`text-lg font-mono font-black ${d.discountIndex < 1 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {(d.discountIndex * 100 - 100).toFixed(2)}%
-                            </div>
-                         </div>
+                      {/* 第二层：核心指标（精算卡片） */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+                        <div className="bg-slate-950/60 border border-white/5 rounded-2xl p-4 md:p-5 group/stat">
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2 group-hover/stat:text-brand-400 transition-colors">摊薄成本 (Cost)</span>
+                          <div className="text-xl font-mono font-black text-slate-300 tracking-tighter">
+                            {d.avgCost.toFixed(4)}
+                          </div>
+                        </div>
+                        <div className="bg-slate-950/60 border border-white/5 rounded-2xl p-4 md:p-5 group/stat">
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2 group-hover/stat:text-brand-400 transition-colors">实时买入 (Buy)</span>
+                          <div className="text-xl font-mono font-black text-white tracking-tighter">
+                            {d.currentNAV.toFixed(4)}
+                          </div>
+                        </div>
+                        <div className="bg-slate-950/60 border border-white/5 rounded-2xl p-4 md:p-5 group/stat">
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2 group-hover/stat:text-brand-400 transition-colors">折扣指数 (Ratio)</span>
+                          <div className={`text-xl font-mono font-black flex items-center gap-2 tracking-tighter ${d.discountIndex < 1 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {(d.discountIndex * 100 - 100).toFixed(2)}%
+                            {d.discountIndex < 1 ? <TrendingDown size={18} /> : <TrendingUp size={18} />}
+                          </div>
+                        </div>
                       </div>
 
-                      {/* 交互控件 */}
-                      <div className="flex gap-4 items-end w-full xl:w-auto">
-                         <div className="space-y-2 flex-1 xl:flex-none">
-                            <label className="text-[9px] font-black text-slate-600 uppercase tracking-widest px-1">确认份额</label>
-                            <input type="number" step="0.01" value={d.actualUnits} onChange={e => {
-                              const val = parseFloat(e.target.value);
-                              const next = [...editableDecisions];
-                              next[idx] = { ...next[idx], actualUnits: val, suggestedAmount: val * d.currentNAV };
-                              setEditableDecisions(next);
-                            }} className="w-full xl:w-28 bg-slate-950 border border-white/10 rounded-2xl px-4 py-3 text-sm font-mono text-white outline-none focus:border-brand-500 shadow-inner" />
-                         </div>
-                         <div className="space-y-2 flex-1 xl:flex-none">
-                            <label className="text-[9px] font-black text-slate-600 uppercase tracking-widest px-1">成交日期</label>
-                            <input type="date" value={d.date} onChange={e => handleDateChange(idx, e.target.value)} className="w-full xl:w-40 bg-slate-950 border border-white/10 rounded-2xl px-4 py-3 text-sm font-mono text-brand-400 outline-none focus:border-brand-500 shadow-inner" />
-                         </div>
+                      {/* 第三层：操作输入（强制换行） */}
+                      <div className="pt-2 border-t border-white/5">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="space-y-3">
+                            <label className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">
+                               <MousePointerClick size={12} className="text-brand-400" /> 确认认购份额
+                            </label>
+                            <div className="relative group">
+                              <input 
+                                type="number" 
+                                step="0.01" 
+                                value={d.actualUnits} 
+                                onChange={e => {
+                                  const val = parseFloat(e.target.value);
+                                  const next = [...editableDecisions];
+                                  next[idx] = { ...next[idx], actualUnits: val, suggestedAmount: val * d.currentNAV };
+                                  setEditableDecisions(next);
+                                }} 
+                                className="w-full bg-slate-950/80 border-2 border-white/5 rounded-[1.25rem] px-5 py-4 text-base font-mono font-black text-white outline-none focus:border-brand-500/50 shadow-inner transition-all"
+                              />
+                              <div className="absolute right-5 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-600 uppercase">份 (Units)</div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <label className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">
+                               <Calendar size={12} className="text-brand-400" /> 指定成交日期
+                            </label>
+                            <div className="relative">
+                              <input 
+                                type="date" 
+                                value={d.date} 
+                                onChange={e => handleDateChange(idx, e.target.value)} 
+                                className="w-full bg-slate-950/80 border-2 border-white/5 rounded-[1.25rem] px-5 py-4 text-base font-mono font-black text-brand-400 outline-none focus:border-brand-500/50 shadow-inner transition-all appearance-none"
+                              />
+                              <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-600">
+                                <ChevronRight size={18} />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                   </div>
-                   
-                   {/* 折扣状态徽标 */}
-                   {d.discountIndex < 1 && (
-                     <div className="absolute top-4 right-6 flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full">
-                        <Flame size={12} className="text-emerald-500 animate-pulse" />
-                        <span className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.2em]">Undervalued</span>
-                     </div>
-                   )}
+                    </div>
                  </div>
                ))
              ) : (
-               <div className="h-64 flex flex-col items-center justify-center text-slate-700 italic space-y-4">
-                  <Layers size={48} className="opacity-10" />
-                  <p className="text-sm">资产比例已均衡或无可用预算</p>
+               <div className="py-24 flex flex-col items-center justify-center text-slate-700 italic space-y-6">
+                  <div className="p-8 bg-slate-900/50 rounded-full border-2 border-dashed border-slate-800">
+                    <Layers size={64} className="opacity-10" />
+                  </div>
+                  <p className="text-sm font-bold uppercase tracking-widest opacity-40">资产比例已均衡或无可用预算</p>
                </div>
              )}
 
-             <button 
-               onClick={() => {
-                  const newTxs: Transaction[] = editableDecisions.map(d => ({
-                    id: `dca-${Date.now()}-${d.code}`, 
-                    code: d.code, 
-                    name: d.name, 
-                    type: 'buy', 
-                    category: d.category, 
-                    units: d.actualUnits, 
-                    date: d.date,
-                    amount: d.suggestedAmount
-                  }));
-                  const updated = [...transactions, ...newTxs];
-                  setTransactions(updated);
-                  localStorage.setItem('fund_transactions', JSON.stringify(updated));
-                  alert(`批量收割完成！已记录 ${newTxs.length} 笔交易。`);
-               }} 
-               disabled={editableDecisions.length === 0}
-               className="w-full bg-brand-600 hover:bg-brand-500 disabled:opacity-30 disabled:grayscale text-white py-6 rounded-3xl font-black text-lg flex items-center justify-center gap-4 shadow-2xl transition-all active:scale-[0.98] mt-8 group"
-             >
-                <MousePointerClick size={24} className="group-hover:translate-y-1 transition-transform" /> 批量确认并入库
-             </button>
+             <div className="pt-6">
+               <button 
+                 onClick={() => {
+                    const newTxs: Transaction[] = editableDecisions.map(d => ({
+                      id: `dca-${Date.now()}-${d.code}`, 
+                      code: d.code, 
+                      name: d.name, 
+                      type: 'buy', 
+                      category: d.category, 
+                      units: d.actualUnits, 
+                      date: d.date,
+                      amount: d.suggestedAmount
+                    }));
+                    const updated = [...transactions, ...newTxs];
+                    setTransactions(updated);
+                    localStorage.setItem('fund_transactions', JSON.stringify(updated));
+                    alert(`批量收割完成！已记录 ${newTxs.length} 笔交易。`);
+                 }} 
+                 disabled={editableDecisions.length === 0}
+                 className="w-full bg-brand-600 hover:bg-brand-500 disabled:opacity-30 disabled:grayscale text-white py-6 rounded-[2.5rem] font-black text-xl flex items-center justify-center gap-5 shadow-2xl transition-all active:scale-[0.98] group"
+               >
+                  <div className="p-2 bg-white/20 rounded-xl group-hover:scale-110 transition-transform">
+                    <MousePointerClick size={24} />
+                  </div>
+                  批量确认并入库 (COMMIT TRANSACTIONS)
+               </button>
+               <p className="text-center text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-6">
+                 确认后将自动更新“我的持仓”面板中的资产数据
+               </p>
+             </div>
            </div>
         </div>
       </div>
