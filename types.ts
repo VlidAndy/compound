@@ -61,4 +61,4 @@ export interface Holding {
   transactions: Transaction[];
 }
 
-export type AppTool = 'calculator' | 'allocation' | 'holdings' | 'strategy';
+export type AppTool = 'calculator' | 'allocation' | 'holdings' | 'strategy' | 'news';

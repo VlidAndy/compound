@@ -5,6 +5,7 @@ import { Visualizer } from './components/Visualizer';
 import { AssetAllocation } from './components/AssetAllocation';
 import { Holdings } from './components/Holdings';
 import { StrategyEngine } from './components/StrategyEngine';
+import { GlobalNews } from './components/GlobalNews';
 import { Toast, ConfirmDialog, NotificationType } from './components/Notification';
 import { calculateCompoundInterest } from './utils/calculator';
 import { InputState, AppTool } from './types';
@@ -24,7 +25,8 @@ import {
   Trash2,
   X,
   Calendar,
-  Database
+  Database,
+  Newspaper
 } from 'lucide-react';
 
 const CLOUD_API_BASE = 'https://fancy-resonance-a403.664014238qq.workers.dev';
@@ -259,7 +261,8 @@ const App: React.FC = () => {
     calculator: '复利精算引擎',
     allocation: '资产配置看板',
     holdings: '我的持仓与历史',
-    strategy: '定投决策引擎'
+    strategy: '定投决策引擎',
+    news: '全球宏观情报库'
   };
 
   const ToolIcon = ({ tool, size }: { tool: AppTool, size: number }) => {
@@ -268,6 +271,7 @@ const App: React.FC = () => {
       case 'allocation': return <PieIcon size={size} />;
       case 'holdings': return <Briefcase size={size} />;
       case 'strategy': return <Zap size={size} />;
+      case 'news': return <Newspaper size={size} />;
     }
   };
 
@@ -292,7 +296,7 @@ const App: React.FC = () => {
       <div className="relative z-10 max-w-7xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col min-h-screen">
         <header className="mb-8 flex items-center justify-between border-b border-slate-800 pb-4 shrink-0 relative">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-brand-600 rounded-xl shadow-lg shadow-brand-500/20">
+            <div className="p-2 bg-brand-600 rounded-xl shadow-lg shadow-brand-500/20 transition-all hover:scale-110">
               <ToolIcon tool={activeTool} size={24} />
             </div>
             
@@ -318,6 +322,7 @@ const App: React.FC = () => {
                       { id: 'holdings', title: '我的持仓管理', sub: '历史交易与净值穿透', icon: <Briefcase size={18} className="text-brand-400" /> },
                       { id: 'calculator', title: '复利精算引擎', sub: '未来财富增长演练', icon: <TrendingUp size={18} /> },
                       { id: 'allocation', title: '资产配置看板', sub: '实时资产分布分析', icon: <PieIcon size={18} /> },
+                      { id: 'news', title: '全球宏观情报', sub: '深度资讯与研报追踪', icon: <Newspaper size={18} className="text-emerald-400" /> },
                     ].map((tool) => (
                       <button 
                         key={tool.id}
@@ -396,6 +401,7 @@ const App: React.FC = () => {
           {activeTool === 'allocation' && <AssetAllocation />}
           {activeTool === 'holdings' && <Holdings />}
           {activeTool === 'strategy' && <StrategyEngine />}
+          {activeTool === 'news' && <GlobalNews />}
         </main>
 
         <footer className="mt-auto pt-4 border-t border-slate-900 text-center">
