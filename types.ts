@@ -40,9 +40,17 @@ export interface Transaction {
   type: TransactionType;
   category: FundCategory;
   units: number;
-  amount?: number; // 新增：实际成交的现金总额
-  date: string; // YYYY-MM-DD
-  timingAlpha?: number; // 择时收益 (对比周一基准)
+  amount?: number; 
+  date: string; 
+  timingAlpha?: number; 
+}
+
+export interface EnhancedTransaction extends Transaction {
+  executedPrice?: number;    
+  executedValue?: number;    
+  tDayText?: string;        
+  isPriceStale?: boolean;   
+  impactPercentage?: number; 
 }
 
 export interface NAVPoint {
@@ -58,7 +66,7 @@ export interface Holding {
   avgCost: number;
   currentNAV: number;
   history: NAVPoint[];
-  transactions: Transaction[];
+  transactions: EnhancedTransaction[];
 }
 
 export type AppTool = 'calculator' | 'allocation' | 'holdings' | 'strategy' | 'news';

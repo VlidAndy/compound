@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, LineChart, PieChart as PieIcon, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Coins, History, Loader2, X, Target, Info, Zap, Clock, MousePointer2, BarChart3, TrendingUp, RefreshCw, Eye, EyeOff, Archive, ArrowRightLeft, Sparkles, TrendingDown } from 'lucide-react';
-import { Transaction, Holding, FundCategory, TransactionType, NAVPoint } from '../types';
+import { Transaction, Holding, FundCategory, TransactionType, NAVPoint, EnhancedTransaction } from '../types';
 import { formatCurrency } from '../utils/calculator';
 import { fetchFundData, getCategoryName, findMondayBaseline } from '../utils/fundApi';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ChartTooltip, LineChart as ReLineChart, Line, XAxis, YAxis, CartesianGrid, ReferenceDot, BarChart, Bar, Cell as BarCell } from 'recharts';
@@ -12,14 +12,6 @@ const CATEGORY_COLORS: Record<FundCategory, string> = {
   gold: '#f59e0b',
   cash: '#10b981'
 };
-
-interface EnhancedTransaction extends Transaction {
-  executedPrice: number;    
-  executedValue: number;    
-  tDayText?: string;        
-  isPriceStale?: boolean;   
-  impactPercentage?: number; 
-}
 
 const CustomPieTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -217,7 +209,7 @@ export const Holdings: React.FC = () => {
       let calcBalance = 0;
       impactEnhanced.forEach(et => {
         if (et.type === 'buy') {
-          totalOutofPocketCost += et.executedValue;
+          totalOutofPocketCost += et.executedValue || 0;
           calcBalance += et.units;
         } else if (et.type === 'sell') {
           const costToReduce = calcBalance > 0 ? (et.units / calcBalance) * totalOutofPocketCost : 0;
@@ -789,7 +781,7 @@ export const Holdings: React.FC = () => {
                           {t.type === 'sell' ? '-' : '+'}{t.units.toFixed(2)} <span className="text-[10px] opacity-40">份</span>
                         </div>
                         <div className={`flex items-center justify-end gap-1.5 text-[10px] mt-1.5 font-bold ${t.type === 'reinvest' ? 'text-brand-400' : 'text-slate-500'}`}>
-                          <Target size={12} /> {t.type === 'reinvest' ? '分红估算' : '确认价(T日)'}: {t.executedPrice.toFixed(selectedHolding.category === 'cash' ? 2 : 4)}
+                          <Target size={12} /> {t.type === 'reinvest' ? '分红估算' : '确认价(T日)'}: {(t.executedPrice || 0).toFixed(selectedHolding.category === 'cash' ? 2 : 4)}
                         </div>
                       </div>
                       <button onClick={() => { removeTx(t.id); setSelectedHolding(null); }} className="opacity-0 group-hover:opacity-100 p-2 text-slate-600 hover:text-red-400 transition-all rounded-lg ml-2">
