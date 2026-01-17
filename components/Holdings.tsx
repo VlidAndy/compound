@@ -18,6 +18,7 @@ interface EnhancedTransaction extends Transaction {
   executedValue: number;    
   tDayText?: string;        
   isPriceStale?: boolean;   
+  impactPercentage?: number; 
 }
 
 const CustomPieTooltip = ({ active, payload }: any) => {
@@ -199,18 +200,34 @@ export const Holdings: React.FC = () => {
       let totalOutofPocketCost = 0; 
       const sortedEnhanced = [...entry.enhancedTxs].sort((a,b) => a.date.localeCompare(b.date));
       let currentUnitsForCalc = 0;
-      sortedEnhanced.forEach(et => {
+      
+      const impactEnhanced = sortedEnhanced.map(et => {
+        let impactPercentage = 0;
+        if (et.type === 'buy' || et.type === 'reinvest') {
+          currentUnitsForCalc += et.units;
+          impactPercentage = currentUnitsForCalc > 0 ? et.units / currentUnitsForCalc : 0;
+        } else if (et.type === 'sell') {
+          const unitsBefore = currentUnitsForCalc;
+          currentUnitsForCalc -= et.units;
+          impactPercentage = unitsBefore > 0 ? et.units / unitsBefore : 0;
+        }
+        return { ...et, impactPercentage };
+      });
+
+      let calcBalance = 0;
+      impactEnhanced.forEach(et => {
         if (et.type === 'buy') {
           totalOutofPocketCost += et.executedValue;
-          currentUnitsForCalc += et.units;
+          calcBalance += et.units;
         } else if (et.type === 'sell') {
-          const costToReduce = currentUnitsForCalc > 0 ? (et.units / currentUnitsForCalc) * totalOutofPocketCost : 0;
+          const costToReduce = calcBalance > 0 ? (et.units / calcBalance) * totalOutofPocketCost : 0;
           totalOutofPocketCost = Math.max(0, totalOutofPocketCost - costToReduce);
-          currentUnitsForCalc -= et.units;
+          calcBalance -= et.units;
         }
       });
-      h.avgCost = currentUnitsForCalc > 0.0001 ? totalOutofPocketCost / currentUnitsForCalc : 0;
-      h.transactions = sortedEnhanced;
+      
+      h.avgCost = calcBalance > 0.0001 ? totalOutofPocketCost / calcBalance : 0;
+      h.transactions = impactEnhanced;
       result.push(h);
     });
 
@@ -231,6 +248,7 @@ export const Holdings: React.FC = () => {
 
     let totalWeeklyProfit = 0;
     const catGains: Record<FundCategory, number> = { stock: 0, bond: 0, gold: 0, cash: 0 };
+    let baselineDateStr = mondayStr;
 
     processedHoldings.forEach(h => {
       if (h.category === 'cash') {
@@ -242,8 +260,10 @@ export const Holdings: React.FC = () => {
       } else {
         if (h.totalUnits <= 0.0001) return;
         const baseline = findMondayBaseline(h.history);
-        const mondayPrice = baseline?.nav || (h.history.length > 0 ? h.history[0].nav : h.currentNAV);
-        const gain = h.totalUnits * (h.currentNAV - mondayPrice);
+        if (baseline) baselineDateStr = formatDateLocal(baseline.timestamp);
+        
+        const baselinePrice = baseline?.nav || (h.history.length > 0 ? h.history[0].nav : h.currentNAV);
+        const gain = h.totalUnits * (h.currentNAV - baselinePrice);
         catGains[h.category] += gain;
         totalWeeklyProfit += gain;
       }
@@ -255,7 +275,7 @@ export const Holdings: React.FC = () => {
       key: cat
     })).sort((a, b) => b.value - a.value);
 
-    return { totalWeeklyProfit, catGains, contributionData, mondayStr };
+    return { totalWeeklyProfit, catGains, contributionData, mondayStr, baselineDateStr };
   }, [processedHoldings]);
 
   const stats = useMemo(() => {
@@ -383,12 +403,12 @@ export const Holdings: React.FC = () => {
                <Sparkles className="text-amber-400" size={16} />
                <span className="text-[10px] uppercase font-black text-slate-500 tracking-[0.2em]">Weekly Performance Hub</span>
              </div>
-             <h2 className="text-2xl font-black text-white">本周结余详情</h2>
+             <h2 className="text-2xl font-black text-white">本周结余变动</h2>
              <div className="space-y-1">
                <div className={`text-4xl font-mono font-black ${weeklyStats.totalWeeklyProfit >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
                  {weeklyStats.totalWeeklyProfit >= 0 ? '+' : ''}{formatCurrency(weeklyStats.totalWeeklyProfit, 2)}
                </div>
-               <p className="text-xs text-slate-500 font-medium">统计周期：自本周一 {weeklyStats.mondayStr} 至今</p>
+               <p className="text-xs text-slate-500 font-medium">基准：较上周末 ({weeklyStats.baselineDateStr}) 结余</p>
              </div>
              <div className="pt-4 flex items-center gap-4">
                 <div className="flex items-center gap-1 text-[10px] text-slate-400 bg-white/5 px-2 py-1 rounded-full border border-white/10">
@@ -740,7 +760,7 @@ export const Holdings: React.FC = () => {
                   <Calendar size={18} className="text-brand-400" /> 历史成交脉络 (流水明细)
                 </h5>
                 <div className="space-y-3">
-                  {selectedHolding.transactions.sort((a,b) => b.date.localeCompare(a.date)).map((t: any) => (
+                  {selectedHolding.transactions.sort((a,b) => b.date.localeCompare(a.date)).map((t: EnhancedTransaction) => (
                     <div key={t.id} className={`bg-slate-800/20 border border-slate-700 p-5 rounded-2xl flex items-center justify-between group shadow-sm transition-all border-l-4 ${t.type === 'buy' ? 'border-l-emerald-500' : t.type === 'sell' ? 'border-l-red-500' : 'border-l-brand-500'}`}>
                       <div className="flex items-center gap-4">
                         <div className={`p-2 rounded-xl ${t.type === 'buy' ? 'bg-emerald-500/10 text-emerald-400' : t.type === 'sell' ? 'bg-red-500/10 text-red-400' : 'bg-brand-500/10 text-brand-400'}`}>
@@ -750,7 +770,18 @@ export const Holdings: React.FC = () => {
                           <div className="text-sm font-bold text-slate-200">
                             {t.type === 'buy' ? '申购确认' : t.type === 'sell' ? '赎回确认' : '分红/再投资'}
                           </div>
-                          <div className="text-[10px] text-slate-500 font-mono mt-0.5 italic">确认日期: {t.date}</div>
+                          <div className="text-[10px] text-slate-500 font-mono mt-0.5 italic flex items-center gap-2">
+                             确认日期: {t.date}
+                             {t.impactPercentage && t.impactPercentage > 0 && (
+                               <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${
+                                 t.type === 'buy' ? 'bg-emerald-500/20 text-emerald-400' : 
+                                 t.type === 'sell' ? 'bg-red-500/20 text-red-400' : 
+                                 'bg-brand-500/20 text-brand-400'
+                               }`}>
+                                 仓位变动 {(t.impactPercentage * 100).toFixed(1)}%
+                               </span>
+                             )}
+                          </div>
                         </div>
                       </div>
                       <div className="text-right">
