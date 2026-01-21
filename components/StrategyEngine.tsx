@@ -182,11 +182,14 @@ export const StrategyEngine: React.FC = () => {
     const initialDecisions: StrategyDecision[] = [];
     const today = new Date().toISOString().split('T')[0];
 
-    const gaps = (['stock', 'gold', 'bond', 'cash'] as FundCategory[]).map(cat => ({
+    // 核心变更：重新排列分配顺序，货币（Cash）作为最后选项
+    // 1. 提取非货币资产并按缺口排序
+    const priorityGaps = (['stock', 'gold', 'bond'] as FundCategory[]).map(cat => ({
       cat, gap: Math.max(0, targetValue - categoryValues[cat])
     })).sort((a, b) => b.gap - a.gap);
 
-    for (const g of gaps) {
+    // 2. 优先分配给高风险/投资类资产
+    for (const g of priorityGaps) {
       if (remainingBudget <= 0) break;
       const available = holdingsByCategory[g.cat];
       if (available.length === 0) continue;
@@ -209,6 +212,23 @@ export const StrategyEngine: React.FC = () => {
         remainingBudget = parseFloat((remainingBudget - roundedAmount).toFixed(2));
       }
     }
+
+    // 3. 如果还有剩余预算，将其全部分配给货币类资产进行补齐
+    if (remainingBudget > 0.01) {
+      const available = holdingsByCategory['cash'];
+      if (available.length > 0) {
+        const h = userSelectedCodes['cash'] ? available.find(f => f.code === userSelectedCodes['cash'])! : available[0];
+        initialDecisions.push({
+          code: h.code, name: h.name, category: 'cash', 
+          suggestedAmount: parseFloat(remainingBudget.toFixed(2)),
+          actualUnits: parseFloat(remainingBudget.toFixed(2)),
+          date: today,
+          mondayNAV: 1.0, currentNAV: 1.0, avgCost: h.avgCost,
+          discountIndex: h.avgCost > 0 ? 1.0 / h.avgCost : 1.0
+        });
+      }
+    }
+    
     setEditableDecisions(initialDecisions);
   }, [holdings.length, budget, realtimeData, userSelectedCodes]);
 
