@@ -6,9 +6,8 @@ export const fetchFundData = async (code: string): Promise<NAVPoint[]> => {
   
   try {
     const targetUrl = `https://fund.eastmoney.com/pingzhongdata/${code}.js`;
-    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
     
-    const response = await fetch(proxyUrl);
+    const response = await fetch(targetUrl);
     if (!response.ok) throw new Error('Network response was not ok');
     
     const text = await response.text();
@@ -43,9 +42,8 @@ export const fetchFundData = async (code: string): Promise<NAVPoint[]> => {
 export const fetchRealtimeValuation = async (code: string): Promise<number | null> => {
   if (!code || code === 'CASH') return 1.0;
   try {
-    const targetUrl = `http://fundgz.1234567.com.cn/js/${code}.js`;
-    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-    const response = await fetch(proxyUrl);
+    const targetUrl = `https://fundgz.1234567.com.cn/js/${code}.js`;
+    const response = await fetch(targetUrl);
     const text = await response.text();
     const match = text.match(/jsonpgz\((.*)\)/);
     if (match && match[1]) {
